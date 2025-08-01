@@ -6,7 +6,6 @@
 #include "util/pmu.h"
 #include "util/pmus.h"
 #include "linux/string.h"
-#include "topdown.h"
 #include "evsel.h"
 #include "util/debug.h"
 #include "env.h"
@@ -22,8 +21,7 @@ void arch_evsel__set_sample_weight(struct evsel *evsel)
 /* Check whether the evsel's PMU supports the perf metrics */
 bool evsel__sys_has_perf_metrics(const struct evsel *evsel)
 {
-	struct perf_pmu *pmu;
-	u32 type = evsel->core.attr.type;
+	const char *pmu_name = evsel->pmu_name ? evsel->pmu_name : "cpu";
 
 	/*
 	 * The PERF_TYPE_RAW type is the core PMU type, e.g., "cpu" PMU
@@ -33,31 +31,11 @@ bool evsel__sys_has_perf_metrics(const struct evsel *evsel)
 	 * Checking both the PERF_TYPE_RAW type and the slots event
 	 * should be good enough to detect the perf metrics feature.
 	 */
-again:
-	switch (type) {
-	case PERF_TYPE_HARDWARE:
-	case PERF_TYPE_HW_CACHE:
-		type = evsel->core.attr.config >> PERF_PMU_TYPE_SHIFT;
-		if (type)
-			goto again;
-		break;
-	case PERF_TYPE_RAW:
-		break;
-	default:
-		return false;
-	}
+	if ((evsel->core.attr.type == PERF_TYPE_RAW) &&
+	    perf_pmus__have_event(pmu_name, "slots"))
+		return true;
 
-	pmu = evsel->pmu;
-	if (pmu && perf_pmu__is_fake(pmu))
-		pmu = NULL;
-
-	if (!pmu) {
-		while ((pmu = perf_pmus__scan_core(pmu)) != NULL) {
-			if (pmu->type == PERF_TYPE_RAW)
-				break;
-		}
-	}
-	return pmu && perf_pmu__have_event(pmu, "slots");
+	return false;
 }
 
 bool arch_evsel__must_be_in_group(const struct evsel *evsel)
@@ -66,7 +44,7 @@ bool arch_evsel__must_be_in_group(const struct evsel *evsel)
 	    strcasestr(evsel->name, "uops_retired.slots"))
 		return false;
 
-	return arch_is_topdown_metrics(evsel) || arch_is_topdown_slots(evsel);
+	return strcasestr(evsel->name, "topdown") || strcasestr(evsel->name, "slots");
 }
 
 int arch_evsel__hw_name(struct evsel *evsel, char *bf, size_t size)
@@ -85,7 +63,7 @@ int arch_evsel__hw_name(struct evsel *evsel, char *bf, size_t size)
 		return  scnprintf(bf, size, "%s", event_name);
 
 	return scnprintf(bf, size, "%s/%s/",
-			 evsel->pmu ? evsel->pmu->name : "cpu",
+			 evsel->pmu_name ? evsel->pmu_name : "cpu",
 			 event_name);
 }
 
@@ -130,7 +108,7 @@ int arch_evsel__open_strerror(struct evsel *evsel, char *msg, size_t size)
 		return 0;
 
 	if (!evsel->core.attr.precise_ip &&
-	    !(evsel->pmu && !strncmp(evsel->pmu->name, "ibs", 3)))
+	    !(evsel->pmu_name && !strncmp(evsel->pmu_name, "ibs", 3)))
 		return 0;
 
 	/* More verbose IBS errors. */

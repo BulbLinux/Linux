@@ -24,11 +24,11 @@
 
 static int hibmc_connector_get_modes(struct drm_connector *connector)
 {
-	struct hibmc_vdac *vdac = to_hibmc_vdac(connector);
+	struct hibmc_connector *hibmc_connector = to_hibmc_connector(connector);
 	const struct drm_edid *drm_edid;
 	int count;
 
-	drm_edid = drm_edid_read_ddc(connector, &vdac->adapter);
+	drm_edid = drm_edid_read_ddc(connector, &hibmc_connector->adapter);
 
 	drm_edid_connector_update(connector, drm_edid);
 
@@ -51,16 +51,15 @@ out:
 
 static void hibmc_connector_destroy(struct drm_connector *connector)
 {
-	struct hibmc_vdac *vdac = to_hibmc_vdac(connector);
+	struct hibmc_connector *hibmc_connector = to_hibmc_connector(connector);
 
-	i2c_del_adapter(&vdac->adapter);
+	i2c_del_adapter(&hibmc_connector->adapter);
 	drm_connector_cleanup(connector);
 }
 
 static const struct drm_connector_helper_funcs
 	hibmc_connector_helper_funcs = {
 	.get_modes = hibmc_connector_get_modes,
-	.detect_ctx = drm_connector_helper_detect_from_ddc,
 };
 
 static const struct drm_connector_funcs hibmc_connector_funcs = {
@@ -94,20 +93,20 @@ static const struct drm_encoder_helper_funcs hibmc_encoder_helper_funcs = {
 int hibmc_vdac_init(struct hibmc_drm_private *priv)
 {
 	struct drm_device *dev = &priv->dev;
-	struct hibmc_vdac *vdac = &priv->vdac;
-	struct drm_encoder *encoder = &vdac->encoder;
+	struct hibmc_connector *hibmc_connector = &priv->connector;
+	struct drm_encoder *encoder = &priv->encoder;
 	struct drm_crtc *crtc = &priv->crtc;
-	struct drm_connector *connector = &vdac->connector;
+	struct drm_connector *connector = &hibmc_connector->base;
 	int ret;
 
-	ret = hibmc_ddc_create(dev, vdac);
+	ret = hibmc_ddc_create(dev, hibmc_connector);
 	if (ret) {
 		drm_err(dev, "failed to create ddc: %d\n", ret);
 		return ret;
 	}
 
 	encoder->possible_crtcs = drm_crtc_mask(crtc);
-	ret = drmm_encoder_init(dev, encoder, NULL, DRM_MODE_ENCODER_DAC, NULL);
+	ret = drm_simple_encoder_init(dev, encoder, DRM_MODE_ENCODER_DAC);
 	if (ret) {
 		drm_err(dev, "failed to init encoder: %d\n", ret);
 		return ret;
@@ -118,7 +117,7 @@ int hibmc_vdac_init(struct hibmc_drm_private *priv)
 	ret = drm_connector_init_with_ddc(dev, connector,
 					  &hibmc_connector_funcs,
 					  DRM_MODE_CONNECTOR_VGA,
-					  &vdac->adapter);
+					  &hibmc_connector->adapter);
 	if (ret) {
 		drm_err(dev, "failed to init connector: %d\n", ret);
 		return ret;
@@ -127,8 +126,6 @@ int hibmc_vdac_init(struct hibmc_drm_private *priv)
 	drm_connector_helper_add(connector, &hibmc_connector_helper_funcs);
 
 	drm_connector_attach_encoder(connector, encoder);
-
-	connector->polled = DRM_CONNECTOR_POLL_CONNECT | DRM_CONNECTOR_POLL_DISCONNECT;
 
 	return 0;
 }

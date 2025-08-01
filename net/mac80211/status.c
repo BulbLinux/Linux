@@ -895,7 +895,8 @@ static int ieee80211_tx_get_rates(struct ieee80211_hw *hw,
 }
 
 void ieee80211_tx_monitor(struct ieee80211_local *local, struct sk_buff *skb,
-			  int retry_count, struct ieee80211_tx_status *status)
+			  int retry_count, bool send_to_cooked,
+			  struct ieee80211_tx_status *status)
 {
 	struct sk_buff *skb2;
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
@@ -926,7 +927,8 @@ void ieee80211_tx_monitor(struct ieee80211_local *local, struct sk_buff *skb,
 			if (!ieee80211_sdata_running(sdata))
 				continue;
 
-			if (sdata->u.mntr.flags & MONITOR_FLAG_SKIP_TX)
+			if ((sdata->u.mntr.flags & MONITOR_FLAG_COOK_FRAMES) &&
+			    !send_to_cooked)
 				continue;
 
 			if (prev_dev) {
@@ -959,6 +961,7 @@ static void __ieee80211_tx_status(struct ieee80211_hw *hw,
 	struct ieee80211_tx_info *info = status->info;
 	struct sta_info *sta;
 	__le16 fc;
+	bool send_to_cooked;
 	bool acked;
 	bool noack_success;
 	struct ieee80211_bar *bar;
@@ -1085,16 +1088,28 @@ static void __ieee80211_tx_status(struct ieee80211_hw *hw,
 
 	ieee80211_report_used_skb(local, skb, false, status->ack_hwtstamp);
 
+	/* this was a transmitted frame, but now we want to reuse it */
+	skb_orphan(skb);
+
+	/* Need to make a copy before skb->cb gets cleared */
+	send_to_cooked = !!(info->flags & IEEE80211_TX_CTL_INJECTED) ||
+			 !(ieee80211_is_data(fc));
+
 	/*
 	 * This is a bit racy but we can avoid a lot of work
 	 * with this test...
 	 */
-	if (local->tx_mntrs)
-		ieee80211_tx_monitor(local, skb, retry_count, status);
-	else if (status->free_list)
-		list_add_tail(&skb->list, status->free_list);
-	else
-		dev_kfree_skb(skb);
+	if (!local->monitors && (!send_to_cooked || !local->cooked_mntrs)) {
+		if (status->free_list)
+			list_add_tail(&skb->list, status->free_list);
+		else
+			dev_kfree_skb(skb);
+		return;
+	}
+
+	/* send to monitor interfaces */
+	ieee80211_tx_monitor(local, skb, retry_count,
+			     send_to_cooked, status);
 }
 
 void ieee80211_tx_status_skb(struct ieee80211_hw *hw, struct sk_buff *skb)

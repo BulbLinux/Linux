@@ -9,7 +9,6 @@ use crate::{
     block::mq::request::RequestDataWrapper,
     block::mq::Request,
     error::{from_result, Result},
-    prelude::*,
     types::ARef,
 };
 use core::{marker::PhantomData, sync::atomic::AtomicU64, sync::atomic::Ordering};
@@ -36,7 +35,7 @@ pub trait Operations: Sized {
     /// Called by the kernel to poll the device for completed requests. Only
     /// used for poll queues.
     fn poll() -> bool {
-        build_error!(crate::error::VTABLE_DEFAULT_ERROR)
+        crate::build_error(crate::error::VTABLE_DEFAULT_ERROR)
     }
 }
 

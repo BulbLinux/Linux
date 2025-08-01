@@ -1461,11 +1461,9 @@ static void get_serial_info(struct tty_struct *tty, struct serial_struct *ss)
 	struct usb_serial_port *port = tty->driver_data;
 	struct ftdi_private *priv = usb_get_serial_port_data(port);
 
-	mutex_lock(&priv->cfg_lock);
 	ss->flags = priv->flags;
 	ss->baud_base = priv->baud_base;
 	ss->custom_divisor = priv->custom_divisor;
-	mutex_unlock(&priv->cfg_lock);
 }
 
 static int set_serial_info(struct tty_struct *tty, struct serial_struct *ss)
@@ -1859,11 +1857,10 @@ static int ftdi_gpio_get(struct gpio_chip *gc, unsigned int gpio)
 	return !!(result & BIT(gpio));
 }
 
-static int ftdi_gpio_set(struct gpio_chip *gc, unsigned int gpio, int value)
+static void ftdi_gpio_set(struct gpio_chip *gc, unsigned int gpio, int value)
 {
 	struct usb_serial_port *port = gpiochip_get_data(gc);
 	struct ftdi_private *priv = usb_get_serial_port_data(port);
-	int result;
 
 	mutex_lock(&priv->gpio_lock);
 
@@ -1872,11 +1869,9 @@ static int ftdi_gpio_set(struct gpio_chip *gc, unsigned int gpio, int value)
 	else
 		priv->gpio_value &= ~BIT(gpio);
 
-	result = ftdi_set_cbus_pins(port);
+	ftdi_set_cbus_pins(port);
 
 	mutex_unlock(&priv->gpio_lock);
-
-	return result;
 }
 
 static int ftdi_gpio_get_multiple(struct gpio_chip *gc, unsigned long *mask,
@@ -1894,22 +1889,19 @@ static int ftdi_gpio_get_multiple(struct gpio_chip *gc, unsigned long *mask,
 	return 0;
 }
 
-static int ftdi_gpio_set_multiple(struct gpio_chip *gc, unsigned long *mask,
+static void ftdi_gpio_set_multiple(struct gpio_chip *gc, unsigned long *mask,
 					unsigned long *bits)
 {
 	struct usb_serial_port *port = gpiochip_get_data(gc);
 	struct ftdi_private *priv = usb_get_serial_port_data(port);
-	int result;
 
 	mutex_lock(&priv->gpio_lock);
 
 	priv->gpio_value &= ~(*mask);
 	priv->gpio_value |= *bits & *mask;
-	result = ftdi_set_cbus_pins(port);
+	ftdi_set_cbus_pins(port);
 
 	mutex_unlock(&priv->gpio_lock);
-
-	return result;
 }
 
 static int ftdi_gpio_direction_get(struct gpio_chip *gc, unsigned int gpio)
@@ -2150,9 +2142,9 @@ static int ftdi_gpio_init(struct usb_serial_port *port)
 	priv->gc.direction_output = ftdi_gpio_direction_output;
 	priv->gc.init_valid_mask = ftdi_gpio_init_valid_mask;
 	priv->gc.get = ftdi_gpio_get;
-	priv->gc.set_rv = ftdi_gpio_set;
+	priv->gc.set = ftdi_gpio_set;
 	priv->gc.get_multiple = ftdi_gpio_get_multiple;
-	priv->gc.set_multiple_rv = ftdi_gpio_set_multiple;
+	priv->gc.set_multiple = ftdi_gpio_set_multiple;
 	priv->gc.owner = THIS_MODULE;
 	priv->gc.parent = &serial->interface->dev;
 	priv->gc.base = -1;

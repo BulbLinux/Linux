@@ -28,7 +28,7 @@
 #include "util/tool.h"
 
 #ifdef HAVE_LIBTRACEEVENT
-#include <event-parse.h>
+#include <traceevent/event-parse.h>
 #endif
 
 struct convert_json {
@@ -230,12 +230,12 @@ static int process_sample_event(const struct perf_tool *tool,
 
 #ifdef HAVE_LIBTRACEEVENT
 	if (sample->raw_data) {
-		struct tep_event *tp_format = evsel__tp_format(evsel);
-		struct tep_format_field **fields = tp_format ? tep_event_fields(tp_format) : NULL;
+		int i;
+		struct tep_format_field **fields;
 
+		fields = tep_event_fields(evsel->tp_format);
 		if (fields) {
-			int i = 0;
-
+			i = 0;
 			while (fields[i]) {
 				struct trace_seq s;
 

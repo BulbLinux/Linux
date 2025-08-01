@@ -96,6 +96,8 @@ struct k210_fpioa_data {
 	struct k210_fpioa __iomem *fpioa;
 	struct regmap *sysctl_map;
 	u32 power_offset;
+	struct clk *clk;
+	struct clk *pclk;
 };
 
 #define K210_PIN_NAME(i)	("IO_" #i)
@@ -923,7 +925,6 @@ static int k210_fpioa_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct device_node *np = dev->of_node;
 	struct k210_fpioa_data *pdata;
-	struct clk *clk, *pclk;
 
 	dev_info(dev, "K210 FPIOA pin controller\n");
 
@@ -938,13 +939,13 @@ static int k210_fpioa_probe(struct platform_device *pdev)
 	if (IS_ERR(pdata->fpioa))
 		return PTR_ERR(pdata->fpioa);
 
-	clk = devm_clk_get_enabled(dev, "ref");
-	if (IS_ERR(clk))
-		return PTR_ERR(clk);
+	pdata->clk = devm_clk_get_enabled(dev, "ref");
+	if (IS_ERR(pdata->clk))
+		return PTR_ERR(pdata->clk);
 
-	pclk = devm_clk_get_optional_enabled(dev, "pclk");
-	if (IS_ERR(pclk))
-		return PTR_ERR(pclk);
+	pdata->pclk = devm_clk_get_optional_enabled(dev, "pclk");
+	if (IS_ERR(pdata->pclk))
+		return PTR_ERR(pdata->pclk);
 
 	pdata->sysctl_map =
 		syscon_regmap_lookup_by_phandle_args(np,

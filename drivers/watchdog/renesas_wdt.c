@@ -337,7 +337,7 @@ static struct platform_driver rwdt_driver = {
 		.pm = &rwdt_pm_ops,
 	},
 	.probe = rwdt_probe,
-	.remove = rwdt_remove,
+	.remove_new = rwdt_remove,
 };
 module_platform_driver(rwdt_driver);
 

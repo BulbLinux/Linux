@@ -4,12 +4,10 @@
  * Copyright (c) 2011-2017 Qualcomm Atheros, Inc.
  * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include "mac.h"
 
-#include <linux/export.h>
 #include <net/cfg80211.h>
 #include <net/mac80211.h>
 #include <linux/etherdevice.h>
@@ -877,7 +875,7 @@ static void ath10k_peer_map_cleanup(struct ath10k *ar, struct ath10k_peer *peer)
 	 */
 	for (i = 0; i < ARRAY_SIZE(ar->peer_map); i++) {
 		if (ar->peer_map[i] == peer) {
-			ath10k_warn(ar, "removing stale peer_map entry for %pM (ptr %p idx %d)\n",
+			ath10k_warn(ar, "removing stale peer_map entry for %pM (ptr %pK idx %d)\n",
 				    peer->addr, peer, i);
 			ar->peer_map[i] = NULL;
 		}
@@ -1022,26 +1020,6 @@ static inline int ath10k_vdev_setup_sync(struct ath10k *ar)
 		return -ETIMEDOUT;
 
 	return ar->last_wmi_vdev_start_status;
-}
-
-static inline int ath10k_vdev_delete_sync(struct ath10k *ar)
-{
-	unsigned long time_left;
-
-	lockdep_assert_held(&ar->conf_mutex);
-
-	if (!test_bit(WMI_SERVICE_SYNC_DELETE_CMDS, ar->wmi.svc_map))
-		return 0;
-
-	if (test_bit(ATH10K_FLAG_CRASH_FLUSH, &ar->dev_flags))
-		return -ESHUTDOWN;
-
-	time_left = wait_for_completion_timeout(&ar->vdev_delete_done,
-						ATH10K_VDEV_DELETE_TIMEOUT_HZ);
-	if (time_left == 0)
-		return -ETIMEDOUT;
-
-	return 0;
 }
 
 static int ath10k_monitor_vdev_start(struct ath10k *ar, int vdev_id)
@@ -3385,7 +3363,7 @@ static int ath10k_update_channel_list(struct ath10k *ar)
 	struct ieee80211_supported_band **bands;
 	enum nl80211_band band;
 	struct ieee80211_channel *channel;
-	struct wmi_scan_chan_list_arg arg = {};
+	struct wmi_scan_chan_list_arg arg = {0};
 	struct wmi_channel_arg *ch;
 	bool passive;
 	int len;
@@ -4085,7 +4063,7 @@ static int ath10k_mac_tx(struct ath10k *ar,
 
 	if (!noque_offchan && info->flags & IEEE80211_TX_CTL_TX_OFFCHAN) {
 		if (!ath10k_mac_tx_frm_has_freq(ar)) {
-			ath10k_dbg(ar, ATH10K_DBG_MAC, "mac queued offchannel skb %p len %d\n",
+			ath10k_dbg(ar, ATH10K_DBG_MAC, "mac queued offchannel skb %pK len %d\n",
 				   skb, skb->len);
 
 			skb_queue_tail(&ar->offchan_tx_queue, skb);
@@ -4148,7 +4126,7 @@ void ath10k_offchan_tx_work(struct work_struct *work)
 
 		mutex_lock(&ar->conf_mutex);
 
-		ath10k_dbg(ar, ATH10K_DBG_MAC, "mac offchannel skb %p len %d\n",
+		ath10k_dbg(ar, ATH10K_DBG_MAC, "mac offchannel skb %pK len %d\n",
 			   skb, skb->len);
 
 		hdr = (struct ieee80211_hdr *)skb->data;
@@ -4203,7 +4181,7 @@ void ath10k_offchan_tx_work(struct work_struct *work)
 		time_left =
 		wait_for_completion_timeout(&ar->offchan_tx_completed, 3 * HZ);
 		if (time_left == 0)
-			ath10k_warn(ar, "timed out waiting for offchannel skb %p, len: %d\n",
+			ath10k_warn(ar, "timed out waiting for offchannel skb %pK, len: %d\n",
 				    skb, skb->len);
 
 		if (!peer && tmp_peer_created) {
@@ -4821,8 +4799,7 @@ void ath10k_halt(struct ath10k *ar)
 	spin_unlock_bh(&ar->data_lock);
 }
 
-static int ath10k_get_antenna(struct ieee80211_hw *hw, int radio_idx,
-			      u32 *tx_ant, u32 *rx_ant)
+static int ath10k_get_antenna(struct ieee80211_hw *hw, u32 *tx_ant, u32 *rx_ant)
 {
 	struct ath10k *ar = hw->priv;
 
@@ -4885,7 +4862,7 @@ static int ath10k_mac_get_vht_cap_bf_sound_dim(struct ath10k *ar)
 
 static struct ieee80211_sta_vht_cap ath10k_create_vht_cap(struct ath10k *ar)
 {
-	struct ieee80211_sta_vht_cap vht_cap = {};
+	struct ieee80211_sta_vht_cap vht_cap = {0};
 	struct ath10k_hw_params *hw = &ar->hw_params;
 	u16 mcs_map;
 	u32 val;
@@ -4943,7 +4920,7 @@ static struct ieee80211_sta_vht_cap ath10k_create_vht_cap(struct ath10k *ar)
 static struct ieee80211_sta_ht_cap ath10k_get_ht_cap(struct ath10k *ar)
 {
 	int i;
-	struct ieee80211_sta_ht_cap ht_cap = {};
+	struct ieee80211_sta_ht_cap ht_cap = {0};
 
 	if (!(ar->ht_cap_info & WMI_HT_CAP_ENABLED))
 		return ht_cap;
@@ -5069,8 +5046,7 @@ static int __ath10k_set_antenna(struct ath10k *ar, u32 tx_ant, u32 rx_ant)
 	return 0;
 }
 
-static int ath10k_set_antenna(struct ieee80211_hw *hw, int radio_idx,
-			      u32 tx_ant, u32 rx_ant)
+static int ath10k_set_antenna(struct ieee80211_hw *hw, u32 tx_ant, u32 rx_ant)
 {
 	struct ath10k *ar = hw->priv;
 	int ret;
@@ -5175,7 +5151,7 @@ static int ath10k_start(struct ieee80211_hw *hw)
 	struct ath10k *ar = hw->priv;
 	u32 param;
 	int ret = 0;
-	struct wmi_bb_timing_cfg_arg bb_timing = {};
+	struct wmi_bb_timing_cfg_arg bb_timing = {0};
 
 	/*
 	 * This makes sense only when restarting hw. It is harmless to call
@@ -5440,7 +5416,7 @@ static int ath10k_config_ps(struct ath10k *ar)
 	return ret;
 }
 
-static int ath10k_config(struct ieee80211_hw *hw, int radio_idx, u32 changed)
+static int ath10k_config(struct ieee80211_hw *hw, u32 changed)
 {
 	struct ath10k *ar = hw->priv;
 	struct ieee80211_conf *conf = &hw->conf;
@@ -5924,6 +5900,7 @@ static void ath10k_remove_interface(struct ieee80211_hw *hw,
 	struct ath10k *ar = hw->priv;
 	struct ath10k_vif *arvif = (void *)vif->drv_priv;
 	struct ath10k_peer *peer;
+	unsigned long time_left;
 	int ret;
 	int i;
 
@@ -5963,10 +5940,13 @@ static void ath10k_remove_interface(struct ieee80211_hw *hw,
 		ath10k_warn(ar, "failed to delete WMI vdev %i: %d\n",
 			    arvif->vdev_id, ret);
 
-	ret = ath10k_vdev_delete_sync(ar);
-	if (ret) {
-		ath10k_warn(ar, "Error in receiving vdev delete response: %d\n", ret);
-		goto out;
+	if (test_bit(WMI_SERVICE_SYNC_DELETE_CMDS, ar->wmi.svc_map)) {
+		time_left = wait_for_completion_timeout(&ar->vdev_delete_done,
+							ATH10K_VDEV_DELETE_TIMEOUT_HZ);
+		if (time_left == 0) {
+			ath10k_warn(ar, "Timeout in receiving vdev delete response\n");
+			goto out;
+		}
 	}
 
 	/* Some firmware revisions don't notify host about self-peer removal
@@ -6339,8 +6319,7 @@ static void ath10k_bss_info_changed(struct ieee80211_hw *hw,
 	mutex_unlock(&ar->conf_mutex);
 }
 
-static void ath10k_mac_op_set_coverage_class(struct ieee80211_hw *hw, int radio_idx,
-					     s16 value)
+static void ath10k_mac_op_set_coverage_class(struct ieee80211_hw *hw, s16 value)
 {
 	struct ath10k *ar = hw->priv;
 
@@ -6351,7 +6330,7 @@ static void ath10k_mac_op_set_coverage_class(struct ieee80211_hw *hw, int radio_
 		WARN_ON_ONCE(1);
 		return;
 	}
-	ar->hw_params.hw_ops->set_coverage_class(ar, -1, value);
+	ar->hw_params.hw_ops->set_coverage_class(ar, value);
 }
 
 struct ath10k_mac_tdls_iter_data {
@@ -6390,7 +6369,7 @@ static int ath10k_hw_scan(struct ieee80211_hw *hw,
 	struct ath10k *ar = hw->priv;
 	struct ath10k_vif *arvif = (void *)vif->drv_priv;
 	struct cfg80211_scan_request *req = &hw_req->req;
-	struct wmi_start_scan_arg *arg = NULL;
+	struct wmi_start_scan_arg arg;
 	int ret = 0;
 	int i;
 	u32 scan_timeout;
@@ -6423,61 +6402,56 @@ static int ath10k_hw_scan(struct ieee80211_hw *hw,
 	if (ret)
 		goto exit;
 
-	arg = kzalloc(sizeof(*arg), GFP_KERNEL);
-	if (!arg) {
-		ret = -ENOMEM;
-		goto exit;
-	}
-
-	ath10k_wmi_start_scan_init(ar, arg);
-	arg->vdev_id = arvif->vdev_id;
-	arg->scan_id = ATH10K_SCAN_ID;
+	memset(&arg, 0, sizeof(arg));
+	ath10k_wmi_start_scan_init(ar, &arg);
+	arg.vdev_id = arvif->vdev_id;
+	arg.scan_id = ATH10K_SCAN_ID;
 
 	if (req->ie_len) {
-		arg->ie_len = req->ie_len;
-		memcpy(arg->ie, req->ie, arg->ie_len);
+		arg.ie_len = req->ie_len;
+		memcpy(arg.ie, req->ie, arg.ie_len);
 	}
 
 	if (req->n_ssids) {
-		arg->n_ssids = req->n_ssids;
-		for (i = 0; i < arg->n_ssids; i++) {
-			arg->ssids[i].len  = req->ssids[i].ssid_len;
-			arg->ssids[i].ssid = req->ssids[i].ssid;
+		arg.n_ssids = req->n_ssids;
+		for (i = 0; i < arg.n_ssids; i++) {
+			arg.ssids[i].len  = req->ssids[i].ssid_len;
+			arg.ssids[i].ssid = req->ssids[i].ssid;
 		}
 	} else {
-		arg->scan_ctrl_flags |= WMI_SCAN_FLAG_PASSIVE;
+		arg.scan_ctrl_flags |= WMI_SCAN_FLAG_PASSIVE;
 	}
 
 	if (req->flags & NL80211_SCAN_FLAG_RANDOM_ADDR) {
-		arg->scan_ctrl_flags |=  WMI_SCAN_ADD_SPOOFED_MAC_IN_PROBE_REQ;
-		ether_addr_copy(arg->mac_addr.addr, req->mac_addr);
-		ether_addr_copy(arg->mac_mask.addr, req->mac_addr_mask);
+		arg.scan_ctrl_flags |=  WMI_SCAN_ADD_SPOOFED_MAC_IN_PROBE_REQ;
+		ether_addr_copy(arg.mac_addr.addr, req->mac_addr);
+		ether_addr_copy(arg.mac_mask.addr, req->mac_addr_mask);
 	}
 
 	if (req->n_channels) {
-		arg->n_channels = req->n_channels;
-		for (i = 0; i < arg->n_channels; i++)
-			arg->channels[i] = req->channels[i]->center_freq;
+		arg.n_channels = req->n_channels;
+		for (i = 0; i < arg.n_channels; i++)
+			arg.channels[i] = req->channels[i]->center_freq;
 	}
 
 	/* if duration is set, default dwell times will be overwritten */
 	if (req->duration) {
-		arg->dwell_time_active = req->duration;
-		arg->dwell_time_passive = req->duration;
-		arg->burst_duration_ms = req->duration;
+		arg.dwell_time_active = req->duration;
+		arg.dwell_time_passive = req->duration;
+		arg.burst_duration_ms = req->duration;
 
-		scan_timeout = min_t(u32, arg->max_rest_time *
-				(arg->n_channels - 1) + (req->duration +
+		scan_timeout = min_t(u32, arg.max_rest_time *
+				(arg.n_channels - 1) + (req->duration +
 				ATH10K_SCAN_CHANNEL_SWITCH_WMI_EVT_OVERHEAD) *
-				arg->n_channels, arg->max_scan_time);
+				arg.n_channels, arg.max_scan_time);
 	} else {
-		scan_timeout = arg->max_scan_time;
+		scan_timeout = arg.max_scan_time;
 	}
 
 	/* Add a 200ms margin to account for event/command processing */
 	scan_timeout += 200;
 
-	ret = ath10k_start_scan(ar, arg);
+	ret = ath10k_start_scan(ar, &arg);
 	if (ret) {
 		ath10k_warn(ar, "failed to start hw scan: %d\n", ret);
 		spin_lock_bh(&ar->data_lock);
@@ -6489,8 +6463,6 @@ static int ath10k_hw_scan(struct ieee80211_hw *hw,
 				     msecs_to_jiffies(scan_timeout));
 
 exit:
-	kfree(arg);
-
 	mutex_unlock(&ar->conf_mutex);
 	return ret;
 }
@@ -7625,7 +7597,7 @@ static int ath10k_sta_state(struct ieee80211_hw *hw,
 		 * Existing station deletion.
 		 */
 		ath10k_dbg(ar, ATH10K_DBG_STA,
-			   "mac vdev %d peer delete %pM sta %p (sta gone)\n",
+			   "mac vdev %d peer delete %pM sta %pK (sta gone)\n",
 			   arvif->vdev_id, sta->addr, sta);
 
 		if (sta->tdls) {
@@ -7652,7 +7624,7 @@ static int ath10k_sta_state(struct ieee80211_hw *hw,
 				continue;
 
 			if (peer->sta == sta) {
-				ath10k_warn(ar, "found sta peer %pM (ptr %p id %d) entry on vdev %i after it was supposedly removed\n",
+				ath10k_warn(ar, "found sta peer %pM (ptr %pK id %d) entry on vdev %i after it was supposedly removed\n",
 					    sta->addr, peer, i, arvif->vdev_id);
 				peer->sta = NULL;
 
@@ -7927,7 +7899,7 @@ static int ath10k_remain_on_channel(struct ieee80211_hw *hw,
 {
 	struct ath10k *ar = hw->priv;
 	struct ath10k_vif *arvif = (void *)vif->drv_priv;
-	struct wmi_start_scan_arg *arg = NULL;
+	struct wmi_start_scan_arg arg;
 	int ret = 0;
 	u32 scan_time_msec;
 
@@ -7964,25 +7936,20 @@ static int ath10k_remain_on_channel(struct ieee80211_hw *hw,
 
 	scan_time_msec = ar->hw->wiphy->max_remain_on_channel_duration * 2;
 
-	arg = kzalloc(sizeof(*arg), GFP_KERNEL);
-	if (!arg) {
-		ret = -ENOMEM;
-		goto exit;
-	}
+	memset(&arg, 0, sizeof(arg));
+	ath10k_wmi_start_scan_init(ar, &arg);
+	arg.vdev_id = arvif->vdev_id;
+	arg.scan_id = ATH10K_SCAN_ID;
+	arg.n_channels = 1;
+	arg.channels[0] = chan->center_freq;
+	arg.dwell_time_active = scan_time_msec;
+	arg.dwell_time_passive = scan_time_msec;
+	arg.max_scan_time = scan_time_msec;
+	arg.scan_ctrl_flags |= WMI_SCAN_FLAG_PASSIVE;
+	arg.scan_ctrl_flags |= WMI_SCAN_FILTER_PROBE_REQ;
+	arg.burst_duration_ms = duration;
 
-	ath10k_wmi_start_scan_init(ar, arg);
-	arg->vdev_id = arvif->vdev_id;
-	arg->scan_id = ATH10K_SCAN_ID;
-	arg->n_channels = 1;
-	arg->channels[0] = chan->center_freq;
-	arg->dwell_time_active = scan_time_msec;
-	arg->dwell_time_passive = scan_time_msec;
-	arg->max_scan_time = scan_time_msec;
-	arg->scan_ctrl_flags |= WMI_SCAN_FLAG_PASSIVE;
-	arg->scan_ctrl_flags |= WMI_SCAN_FILTER_PROBE_REQ;
-	arg->burst_duration_ms = duration;
-
-	ret = ath10k_start_scan(ar, arg);
+	ret = ath10k_start_scan(ar, &arg);
 	if (ret) {
 		ath10k_warn(ar, "failed to start roc scan: %d\n", ret);
 		spin_lock_bh(&ar->data_lock);
@@ -8008,8 +7975,6 @@ static int ath10k_remain_on_channel(struct ieee80211_hw *hw,
 
 	ret = 0;
 exit:
-	kfree(arg);
-
 	mutex_unlock(&ar->conf_mutex);
 	return ret;
 }
@@ -8039,8 +8004,7 @@ static int ath10k_cancel_remain_on_channel(struct ieee80211_hw *hw,
  * in ath10k, but device-specific in mac80211.
  */
 
-static int ath10k_set_rts_threshold(struct ieee80211_hw *hw, int radio_idx,
-				    u32 value)
+static int ath10k_set_rts_threshold(struct ieee80211_hw *hw, u32 value)
 {
 	struct ath10k *ar = hw->priv;
 	struct ath10k_vif *arvif;
@@ -8063,8 +8027,7 @@ static int ath10k_set_rts_threshold(struct ieee80211_hw *hw, int radio_idx,
 	return ret;
 }
 
-static int ath10k_mac_op_set_frag_threshold(struct ieee80211_hw *hw,
-					    int radio_idx, u32 value)
+static int ath10k_mac_op_set_frag_threshold(struct ieee80211_hw *hw, u32 value)
 {
 	/* Even though there's a WMI enum for fragmentation threshold no known
 	 * firmware actually implements it. Moreover it is not possible to rely
@@ -8162,12 +8125,7 @@ static void ath10k_reconfig_complete(struct ieee80211_hw *hw,
 		ath10k_info(ar, "device successfully recovered\n");
 		ar->state = ATH10K_STATE_ON;
 		ieee80211_wake_queues(ar->hw);
-
-		/* Clear recovery state. */
-		complete(&ar->driver_recovery);
-		atomic_set(&ar->fail_cont_count, 0);
-		atomic_set(&ar->pending_recovery, 0);
-
+		clear_bit(ATH10K_FLAG_RESTARTING, &ar->dev_flags);
 		if (ar->hw_params.hw_restart_disconnect) {
 			list_for_each_entry(arvif, &ar->arvifs, list) {
 				if (arvif->is_up && arvif->vdev_type == WMI_VDEV_TYPE_STA)
@@ -8549,10 +8507,9 @@ exit:
 
 static void ath10k_sta_rc_update(struct ieee80211_hw *hw,
 				 struct ieee80211_vif *vif,
-				 struct ieee80211_link_sta *link_sta,
+				 struct ieee80211_sta *sta,
 				 u32 changed)
 {
-	struct ieee80211_sta *sta = link_sta->sta;
 	struct ath10k *ar = hw->priv;
 	struct ath10k_sta *arsta = (struct ath10k_sta *)sta->drv_priv;
 	struct ath10k_vif *arvif = (void *)vif->drv_priv;
@@ -8839,7 +8796,7 @@ ath10k_mac_op_add_chanctx(struct ieee80211_hw *hw,
 	struct ath10k *ar = hw->priv;
 
 	ath10k_dbg(ar, ATH10K_DBG_MAC,
-		   "mac chanctx add freq %u width %d ptr %p\n",
+		   "mac chanctx add freq %u width %d ptr %pK\n",
 		   ctx->def.chan->center_freq, ctx->def.width, ctx);
 
 	mutex_lock(&ar->conf_mutex);
@@ -8863,7 +8820,7 @@ ath10k_mac_op_remove_chanctx(struct ieee80211_hw *hw,
 	struct ath10k *ar = hw->priv;
 
 	ath10k_dbg(ar, ATH10K_DBG_MAC,
-		   "mac chanctx remove freq %u width %d ptr %p\n",
+		   "mac chanctx remove freq %u width %d ptr %pK\n",
 		   ctx->def.chan->center_freq, ctx->def.width, ctx);
 
 	mutex_lock(&ar->conf_mutex);
@@ -8928,7 +8885,7 @@ ath10k_mac_op_change_chanctx(struct ieee80211_hw *hw,
 	mutex_lock(&ar->conf_mutex);
 
 	ath10k_dbg(ar, ATH10K_DBG_MAC,
-		   "mac chanctx change freq %u width %d ptr %p changed %x\n",
+		   "mac chanctx change freq %u width %d ptr %pK changed %x\n",
 		   ctx->def.chan->center_freq, ctx->def.width, ctx, changed);
 
 	/* This shouldn't really happen because channel switching should use
@@ -8987,7 +8944,7 @@ ath10k_mac_op_assign_vif_chanctx(struct ieee80211_hw *hw,
 	mutex_lock(&ar->conf_mutex);
 
 	ath10k_dbg(ar, ATH10K_DBG_MAC,
-		   "mac chanctx assign ptr %p vdev_id %i\n",
+		   "mac chanctx assign ptr %pK vdev_id %i\n",
 		   ctx, arvif->vdev_id);
 
 	if (WARN_ON(arvif->is_started)) {
@@ -9067,7 +9024,7 @@ ath10k_mac_op_unassign_vif_chanctx(struct ieee80211_hw *hw,
 	mutex_lock(&ar->conf_mutex);
 
 	ath10k_dbg(ar, ATH10K_DBG_MAC,
-		   "mac chanctx unassign ptr %p vdev_id %i\n",
+		   "mac chanctx unassign ptr %pK vdev_id %i\n",
 		   ctx, arvif->vdev_id);
 
 	WARN_ON(!arvif->is_started);
@@ -9493,7 +9450,7 @@ static const struct ieee80211_ops ath10k_ops = {
 	.reconfig_complete		= ath10k_reconfig_complete,
 	.get_survey			= ath10k_get_survey,
 	.set_bitrate_mask		= ath10k_mac_op_set_bitrate_mask,
-	.link_sta_rc_update		= ath10k_sta_rc_update,
+	.sta_rc_update			= ath10k_sta_rc_update,
 	.offset_tsf			= ath10k_offset_tsf,
 	.ampdu_action			= ath10k_ampdu_action,
 	.get_et_sset_count		= ath10k_debug_get_et_sset_count,

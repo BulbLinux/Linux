@@ -39,7 +39,6 @@
 #include <linux/lapb.h>
 #include <linux/init.h>
 
-#include <net/netdev_lock.h>
 #include <net/x25device.h>
 
 static const u8 bcast_addr[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
@@ -367,7 +366,6 @@ static const struct net_device_ops lapbeth_netdev_ops = {
 
 static void lapbeth_setup(struct net_device *dev)
 {
-	netdev_lockdep_set_classes(dev);
 	dev->netdev_ops	     = &lapbeth_netdev_ops;
 	dev->needs_free_netdev = true;
 	dev->type            = ARPHRD_X25;

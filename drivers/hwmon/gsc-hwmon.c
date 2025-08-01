@@ -47,6 +47,7 @@ static const struct regmap_bus gsc_hwmon_regmap_bus = {
 static const struct regmap_config gsc_hwmon_regmap_config = {
 	.reg_bits = 8,
 	.val_bits = 8,
+	.cache_type = REGCACHE_NONE,
 };
 
 static ssize_t pwm_auto_point_temp_show(struct device *dev,
@@ -64,7 +65,7 @@ static ssize_t pwm_auto_point_temp_show(struct device *dev,
 		return ret;
 
 	ret = regs[0] | regs[1] << 8;
-	return sprintf(buf, "%d\n", ret * 100);
+	return sprintf(buf, "%d\n", ret * 10);
 }
 
 static ssize_t pwm_auto_point_temp_store(struct device *dev,
@@ -99,7 +100,7 @@ static ssize_t pwm_auto_point_pwm_show(struct device *dev,
 {
 	struct sensor_device_attribute *attr = to_sensor_dev_attr(devattr);
 
-	return sprintf(buf, "%d\n", 255 * (50 + (attr->index * 10)) / 100);
+	return sprintf(buf, "%d\n", 255 * (50 + (attr->index * 10)));
 }
 
 static SENSOR_DEVICE_ATTR_RO(pwm1_auto_point1_pwm, pwm_auto_point_pwm, 0);
@@ -230,8 +231,15 @@ gsc_hwmon_read_string(struct device *dev, enum hwmon_sensor_types type,
 	return 0;
 }
 
+static umode_t
+gsc_hwmon_is_visible(const void *_data, enum hwmon_sensor_types type, u32 attr,
+		     int ch)
+{
+	return 0444;
+}
+
 static const struct hwmon_ops gsc_hwmon_ops = {
-	.visible = 0444,
+	.is_visible = gsc_hwmon_is_visible,
 	.read = gsc_hwmon_read,
 	.read_string = gsc_hwmon_read_string,
 };

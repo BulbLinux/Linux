@@ -36,7 +36,7 @@
 #include "util/sample.h"
 
 #ifdef HAVE_LIBTRACEEVENT
-#include <event-parse.h>
+#include <traceevent/event-parse.h>
 #endif
 
 #define pr_N(n, fmt, ...) \
@@ -426,9 +426,8 @@ static int add_tracepoint_values(struct ctf_writer *cw,
 				 struct evsel *evsel,
 				 struct perf_sample *sample)
 {
-	const struct tep_event *tp_format = evsel__tp_format(evsel);
-	struct tep_format_field *common_fields = tp_format->format.common_fields;
-	struct tep_format_field *fields        = tp_format->format.fields;
+	struct tep_format_field *common_fields = evsel->tp_format->format.common_fields;
+	struct tep_format_field *fields        = evsel->tp_format->format.fields;
 	int ret;
 
 	ret = add_tracepoint_fields_values(cw, event_class, event,
@@ -1065,9 +1064,8 @@ static int add_tracepoint_types(struct ctf_writer *cw,
 				struct evsel *evsel,
 				struct bt_ctf_event_class *class)
 {
-	const struct tep_event *tp_format = evsel__tp_format(evsel);
-	struct tep_format_field *common_fields = tp_format ? tp_format->format.common_fields : NULL;
-	struct tep_format_field *fields        = tp_format ? tp_format->format.fields : NULL;
+	struct tep_format_field *common_fields = evsel->tp_format->format.common_fields;
+	struct tep_format_field *fields        = evsel->tp_format->format.fields;
 	int ret;
 
 	ret = add_tracepoint_fields_types(cw, common_fields, class);

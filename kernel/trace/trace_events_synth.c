@@ -49,11 +49,16 @@ static char *last_cmd;
 
 static int errpos(const char *str)
 {
-	guard(mutex)(&lastcmd_mutex);
-	if (!str || !last_cmd)
-		return 0;
+	int ret = 0;
 
-	return err_pos(last_cmd, str);
+	mutex_lock(&lastcmd_mutex);
+	if (!str || !last_cmd)
+		goto out;
+
+	ret = err_pos(last_cmd, str);
+ out:
+	mutex_unlock(&lastcmd_mutex);
+	return ret;
 }
 
 static void last_cmd_set(const char *str)
@@ -69,12 +74,14 @@ static void last_cmd_set(const char *str)
 
 static void synth_err(u8 err_type, u16 err_pos)
 {
-	guard(mutex)(&lastcmd_mutex);
+	mutex_lock(&lastcmd_mutex);
 	if (!last_cmd)
-		return;
+		goto out;
 
 	tracing_log_err(NULL, "synthetic_events", last_cmd, err_text,
 			err_type, err_pos);
+ out:
+	mutex_unlock(&lastcmd_mutex);
 }
 
 static int create_synth_event(const char *raw_command);
@@ -207,7 +214,7 @@ static int synth_field_string_size(char *type)
 	if (len == 0)
 		return 0; /* variable-length string */
 
-	memcpy(buf, start, len);
+	strncpy(buf, start, len);
 	buf[len] = '\0';
 
 	err = kstrtouint(buf, 0, &size);
@@ -611,7 +618,7 @@ static int __set_synth_event_print_fmt(struct synth_event *event,
 		fmt = synth_field_fmt(event->fields[i]->type);
 		pos += snprintf(buf + pos, LEN_OR_ZERO, "%s=%s%s",
 				event->fields[i]->name, fmt,
-				i == event->n_fields - 1 ? "" : " ");
+				i == event->n_fields - 1 ? "" : ", ");
 	}
 	pos += snprintf(buf + pos, LEN_OR_ZERO, "\"");
 

@@ -369,6 +369,7 @@ static struct interp_sample_rate int_mix_sample_rate_val[] = {
 };
 
 enum {
+	WSA_MACRO_AIF_INVALID = 0,
 	WSA_MACRO_AIF1_PB,
 	WSA_MACRO_AIF_MIX1_PB,
 	WSA_MACRO_AIF_VI,
@@ -2950,7 +2951,7 @@ static void wsa_macro_remove(struct platform_device *pdev)
 	clk_disable_unprepare(wsa->fsgen);
 }
 
-static int wsa_macro_runtime_suspend(struct device *dev)
+static int __maybe_unused wsa_macro_runtime_suspend(struct device *dev)
 {
 	struct wsa_macro *wsa = dev_get_drvdata(dev);
 
@@ -2964,7 +2965,7 @@ static int wsa_macro_runtime_suspend(struct device *dev)
 	return 0;
 }
 
-static int wsa_macro_runtime_resume(struct device *dev)
+static int __maybe_unused wsa_macro_runtime_resume(struct device *dev)
 {
 	struct wsa_macro *wsa = dev_get_drvdata(dev);
 	int ret;
@@ -3000,7 +3001,7 @@ err_npl:
 }
 
 static const struct dev_pm_ops wsa_macro_pm_ops = {
-	RUNTIME_PM_OPS(wsa_macro_runtime_suspend, wsa_macro_runtime_resume, NULL)
+	SET_RUNTIME_PM_OPS(wsa_macro_runtime_suspend, wsa_macro_runtime_resume, NULL)
 };
 
 static const struct of_device_id wsa_macro_dt_match[] = {
@@ -3027,7 +3028,7 @@ static struct platform_driver wsa_macro_driver = {
 	.driver = {
 		.name = "wsa_macro",
 		.of_match_table = wsa_macro_dt_match,
-		.pm = pm_ptr(&wsa_macro_pm_ops),
+		.pm = &wsa_macro_pm_ops,
 	},
 	.probe = wsa_macro_probe,
 	.remove = wsa_macro_remove,

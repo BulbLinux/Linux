@@ -192,8 +192,7 @@ struct fscrypt_operations {
 					     unsigned int *num_devs);
 };
 
-int fscrypt_d_revalidate(struct inode *dir, const struct qstr *name,
-			 struct dentry *dentry, unsigned int flags);
+int fscrypt_d_revalidate(struct dentry *dentry, unsigned int flags);
 
 static inline struct fscrypt_inode_info *
 fscrypt_get_inode_info(const struct inode *inode)
@@ -310,11 +309,13 @@ static inline void fscrypt_prepare_dentry(struct dentry *dentry,
 /* crypto.c */
 void fscrypt_enqueue_decrypt_work(struct work_struct *);
 
-struct page *fscrypt_encrypt_pagecache_blocks(struct folio *folio,
-		size_t len, size_t offs, gfp_t gfp_flags);
+struct page *fscrypt_encrypt_pagecache_blocks(struct page *page,
+					      unsigned int len,
+					      unsigned int offs,
+					      gfp_t gfp_flags);
 int fscrypt_encrypt_block_inplace(const struct inode *inode, struct page *page,
 				  unsigned int len, unsigned int offs,
-				  u64 lblk_num);
+				  u64 lblk_num, gfp_t gfp_flags);
 
 int fscrypt_decrypt_pagecache_blocks(struct folio *folio, size_t len,
 				     size_t offs);
@@ -478,8 +479,10 @@ static inline void fscrypt_enqueue_decrypt_work(struct work_struct *work)
 {
 }
 
-static inline struct page *fscrypt_encrypt_pagecache_blocks(struct folio *folio,
-		size_t len, size_t offs, gfp_t gfp_flags)
+static inline struct page *fscrypt_encrypt_pagecache_blocks(struct page *page,
+							    unsigned int len,
+							    unsigned int offs,
+							    gfp_t gfp_flags)
 {
 	return ERR_PTR(-EOPNOTSUPP);
 }
@@ -487,7 +490,8 @@ static inline struct page *fscrypt_encrypt_pagecache_blocks(struct folio *folio,
 static inline int fscrypt_encrypt_block_inplace(const struct inode *inode,
 						struct page *page,
 						unsigned int len,
-						unsigned int offs, u64 lblk_num)
+						unsigned int offs, u64 lblk_num,
+						gfp_t gfp_flags)
 {
 	return -EOPNOTSUPP;
 }
@@ -707,8 +711,8 @@ static inline u64 fscrypt_fname_siphash(const struct inode *dir,
 	return 0;
 }
 
-static inline int fscrypt_d_revalidate(struct inode *dir, const struct qstr *name,
-				       struct dentry *dentry, unsigned int flags)
+static inline int fscrypt_d_revalidate(struct dentry *dentry,
+				       unsigned int flags)
 {
 	return 1;
 }

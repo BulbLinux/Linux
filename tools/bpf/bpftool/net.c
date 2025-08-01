@@ -366,18 +366,17 @@ static int dump_link_nlmsg(void *cookie, void *msg, struct nlattr **tb)
 {
 	struct bpf_netdev_t *netinfo = cookie;
 	struct ifinfomsg *ifinfo = msg;
-	struct ip_devname_ifindex *tmp;
 
 	if (netinfo->filter_idx > 0 && netinfo->filter_idx != ifinfo->ifi_index)
 		return 0;
 
 	if (netinfo->used_len == netinfo->array_len) {
-		tmp = realloc(netinfo->devices,
-			(netinfo->array_len + 16) * sizeof(struct ip_devname_ifindex));
-		if (!tmp)
+		netinfo->devices = realloc(netinfo->devices,
+			(netinfo->array_len + 16) *
+			sizeof(struct ip_devname_ifindex));
+		if (!netinfo->devices)
 			return -ENOMEM;
 
-		netinfo->devices = tmp;
 		netinfo->array_len += 16;
 	}
 	netinfo->devices[netinfo->used_len].ifindex = ifinfo->ifi_index;
@@ -396,7 +395,6 @@ static int dump_class_qdisc_nlmsg(void *cookie, void *msg, struct nlattr **tb)
 {
 	struct bpf_tcinfo_t *tcinfo = cookie;
 	struct tcmsg *info = msg;
-	struct tc_kind_handle *tmp;
 
 	if (tcinfo->is_qdisc) {
 		/* skip clsact qdisc */
@@ -408,12 +406,11 @@ static int dump_class_qdisc_nlmsg(void *cookie, void *msg, struct nlattr **tb)
 	}
 
 	if (tcinfo->used_len == tcinfo->array_len) {
-		tmp = realloc(tcinfo->handle_array,
+		tcinfo->handle_array = realloc(tcinfo->handle_array,
 			(tcinfo->array_len + 16) * sizeof(struct tc_kind_handle));
-		if (!tmp)
+		if (!tcinfo->handle_array)
 			return -ENOMEM;
 
-		tcinfo->handle_array = tmp;
 		tcinfo->array_len += 16;
 	}
 	tcinfo->handle_array[tcinfo->used_len].handle = info->tcm_handle;
@@ -479,7 +476,7 @@ static void __show_dev_tc_bpf(const struct ip_devname_ifindex *dev,
 	for (i = 0; i < optq.count; i++) {
 		NET_START_OBJECT;
 		NET_DUMP_STR("devname", "%s", dev->devname);
-		NET_DUMP_UINT("ifindex", "(%u)", (unsigned int)dev->ifindex);
+		NET_DUMP_UINT("ifindex", "(%u)", dev->ifindex);
 		NET_DUMP_STR("kind", " %s", attach_loc_strings[loc]);
 		ret = __show_dev_tc_bpf_name(prog_ids[i], prog_name,
 					     sizeof(prog_name));
@@ -834,7 +831,7 @@ static void show_link_netfilter(void)
 		if (err) {
 			if (errno == ENOENT)
 				break;
-			p_err("can't get next link: %s (id %u)", strerror(errno), id);
+			p_err("can't get next link: %s (id %d)", strerror(errno), id);
 			break;
 		}
 

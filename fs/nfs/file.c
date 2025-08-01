@@ -167,10 +167,7 @@ nfs_file_read(struct kiocb *iocb, struct iov_iter *to)
 		iocb->ki_filp,
 		iov_iter_count(to), (unsigned long) iocb->ki_pos);
 
-	result = nfs_start_io_read(inode);
-	if (result)
-		return result;
-
+	nfs_start_io_read(inode);
 	result = nfs_revalidate_mapping(inode, iocb->ki_filp->f_mapping);
 	if (!result) {
 		result = generic_file_read_iter(iocb, to);
@@ -191,10 +188,7 @@ nfs_file_splice_read(struct file *in, loff_t *ppos, struct pipe_inode_info *pipe
 
 	dprintk("NFS: splice_read(%pD2, %zu@%llu)\n", in, len, *ppos);
 
-	result = nfs_start_io_read(inode);
-	if (result)
-		return result;
-
+	nfs_start_io_read(inode);
 	result = nfs_revalidate_mapping(inode, in->f_mapping);
 	if (!result) {
 		result = filemap_splice_read(in, ppos, pipe, len, flags);
@@ -207,25 +201,24 @@ nfs_file_splice_read(struct file *in, loff_t *ppos, struct pipe_inode_info *pipe
 EXPORT_SYMBOL_GPL(nfs_file_splice_read);
 
 int
-nfs_file_mmap_prepare(struct vm_area_desc *desc)
+nfs_file_mmap(struct file *file, struct vm_area_struct *vma)
 {
-	struct file *file = desc->file;
 	struct inode *inode = file_inode(file);
 	int	status;
 
 	dprintk("NFS: mmap(%pD2)\n", file);
 
-	/* Note: generic_file_mmap_prepare() returns ENOSYS on nommu systems
+	/* Note: generic_file_mmap() returns ENOSYS on nommu systems
 	 *       so we call that before revalidating the mapping
 	 */
-	status = generic_file_mmap_prepare(desc);
+	status = generic_file_mmap(file, vma);
 	if (!status) {
-		desc->vm_ops = &nfs_file_vm_ops;
+		vma->vm_ops = &nfs_file_vm_ops;
 		status = nfs_revalidate_mapping(inode, file->f_mapping);
 	}
 	return status;
 }
-EXPORT_SYMBOL_GPL(nfs_file_mmap_prepare);
+EXPORT_SYMBOL_GPL(nfs_file_mmap);
 
 /*
  * Flush any dirty pages for this process, and check for write errors.
@@ -343,14 +336,12 @@ static bool nfs_want_read_modify_write(struct file *file, struct folio *folio,
  * If the writer ends up delaying the write, the writer needs to
  * increment the page use counts until he is done with the page.
  */
-static int nfs_write_begin(const struct kiocb *iocb,
-			   struct address_space *mapping,
+static int nfs_write_begin(struct file *file, struct address_space *mapping,
 			   loff_t pos, unsigned len, struct folio **foliop,
 			   void **fsdata)
 {
 	fgf_t fgp = FGP_WRITEBEGIN;
 	struct folio *folio;
-	struct file *file = iocb->ki_filp;
 	int once_thru = 0;
 	int ret;
 
@@ -380,12 +371,10 @@ start:
 	return ret;
 }
 
-static int nfs_write_end(const struct kiocb *iocb,
-			 struct address_space *mapping,
+static int nfs_write_end(struct file *file, struct address_space *mapping,
 			 loff_t pos, unsigned len, unsigned copied,
 			 struct folio *folio, void *fsdata)
 {
-	struct file *file = iocb->ki_filp;
 	struct nfs_open_context *ctx = nfs_file_open_context(file);
 	unsigned offset = offset_in_folio(folio, pos);
 	int status;
@@ -680,9 +669,7 @@ ssize_t nfs_file_write(struct kiocb *iocb, struct iov_iter *from)
 	nfs_clear_invalid_mapping(file->f_mapping);
 
 	since = filemap_sample_wb_err(file->f_mapping);
-	error = nfs_start_io_write(inode);
-	if (error)
-		return error;
+	nfs_start_io_write(inode);
 	result = generic_write_checks(iocb, from);
 	if (result > 0)
 		result = generic_perform_write(iocb, from);
@@ -904,7 +891,7 @@ const struct file_operations nfs_file_operations = {
 	.llseek		= nfs_file_llseek,
 	.read_iter	= nfs_file_read,
 	.write_iter	= nfs_file_write,
-	.mmap_prepare	= nfs_file_mmap_prepare,
+	.mmap		= nfs_file_mmap,
 	.open		= nfs_file_open,
 	.flush		= nfs_file_flush,
 	.release	= nfs_file_release,

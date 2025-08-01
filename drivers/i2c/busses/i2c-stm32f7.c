@@ -34,7 +34,6 @@
 #include <linux/regmap.h>
 #include <linux/reset.h>
 #include <linux/slab.h>
-#include <linux/string_choices.h>
 
 #include "i2c-stm32.h"
 
@@ -723,7 +722,7 @@ static int stm32f7_i2c_setup_timing(struct stm32f7_i2c_dev *i2c_dev,
 	dev_dbg(i2c_dev->dev, "I2C Rise(%i) and Fall(%i) Time\n",
 		setup->rise_time, setup->fall_time);
 	dev_dbg(i2c_dev->dev, "I2C Analog Filter(%s), DNF(%i)\n",
-		str_on_off(i2c_dev->analog_filter), i2c_dev->dnf);
+		(i2c_dev->analog_filter ? "On" : "Off"), i2c_dev->dnf);
 
 	i2c_dev->bus_rate = setup->speed_freq;
 
@@ -2146,8 +2145,8 @@ static u32 stm32f7_i2c_func(struct i2c_adapter *adap)
 }
 
 static const struct i2c_algorithm stm32f7_i2c_algo = {
-	.xfer = stm32f7_i2c_xfer,
-	.xfer_atomic = stm32f7_i2c_xfer_atomic,
+	.master_xfer = stm32f7_i2c_xfer,
+	.master_xfer_atomic = stm32f7_i2c_xfer_atomic,
 	.smbus_xfer = stm32f7_i2c_smbus_xfer,
 	.functionality = stm32f7_i2c_func,
 	.reg_slave = stm32f7_i2c_reg_slave,
@@ -2527,7 +2526,7 @@ static struct platform_driver stm32f7_i2c_driver = {
 		.pm = &stm32f7_i2c_pm_ops,
 	},
 	.probe = stm32f7_i2c_probe,
-	.remove = stm32f7_i2c_remove,
+	.remove_new = stm32f7_i2c_remove,
 };
 
 module_platform_driver(stm32f7_i2c_driver);

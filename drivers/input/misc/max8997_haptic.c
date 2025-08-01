@@ -153,19 +153,19 @@ static void max8997_haptic_enable(struct max8997_haptic *chip)
 {
 	int error;
 
-	guard(mutex)(&chip->mutex);
+	mutex_lock(&chip->mutex);
 
 	error = max8997_haptic_set_duty_cycle(chip);
 	if (error) {
 		dev_err(chip->dev, "set_pwm_cycle failed, error: %d\n", error);
-		return;
+		goto out;
 	}
 
 	if (!chip->enabled) {
 		error = regulator_enable(chip->regulator);
 		if (error) {
 			dev_err(chip->dev, "Failed to enable regulator\n");
-			return;
+			goto out;
 		}
 		max8997_haptic_configure(chip);
 		if (chip->mode == MAX8997_EXTERNAL_MODE) {
@@ -173,16 +173,19 @@ static void max8997_haptic_enable(struct max8997_haptic *chip)
 			if (error) {
 				dev_err(chip->dev, "Failed to enable PWM\n");
 				regulator_disable(chip->regulator);
-				return;
+				goto out;
 			}
 		}
 		chip->enabled = true;
 	}
+
+out:
+	mutex_unlock(&chip->mutex);
 }
 
 static void max8997_haptic_disable(struct max8997_haptic *chip)
 {
-	guard(mutex)(&chip->mutex);
+	mutex_lock(&chip->mutex);
 
 	if (chip->enabled) {
 		chip->enabled = false;
@@ -191,6 +194,8 @@ static void max8997_haptic_disable(struct max8997_haptic *chip)
 			pwm_disable(chip->pwm);
 		regulator_disable(chip->regulator);
 	}
+
+	mutex_unlock(&chip->mutex);
 }
 
 static void max8997_haptic_play_effect_work(struct work_struct *work)
@@ -384,7 +389,7 @@ static struct platform_driver max8997_haptic_driver = {
 		.pm	= pm_sleep_ptr(&max8997_haptic_pm_ops),
 	},
 	.probe		= max8997_haptic_probe,
-	.remove		= max8997_haptic_remove,
+	.remove_new	= max8997_haptic_remove,
 	.id_table	= max8997_haptic_id,
 };
 module_platform_driver(max8997_haptic_driver);

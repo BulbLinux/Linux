@@ -373,7 +373,7 @@ static int atmel_nand_dma_transfer(struct atmel_nand_controller *nc,
 	dma_cookie_t cookie;
 
 	buf_dma = dma_map_single(nc->dev, buf, len, dir);
-	if (dma_mapping_error(nc->dev, buf_dma)) {
+	if (dma_mapping_error(nc->dev, dev_dma)) {
 		dev_err(nc->dev,
 			"Failed to prepare a buffer for DMA access\n");
 		goto err;
@@ -2663,7 +2663,7 @@ static struct platform_driver atmel_nand_controller_driver = {
 		.pm = &atmel_nand_controller_pm_ops,
 	},
 	.probe = atmel_nand_controller_probe,
-	.remove = atmel_nand_controller_remove,
+	.remove_new = atmel_nand_controller_remove,
 };
 module_platform_driver(atmel_nand_controller_driver);
 

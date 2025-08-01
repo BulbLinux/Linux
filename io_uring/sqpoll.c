@@ -16,7 +16,6 @@
 #include <uapi/linux/io_uring.h>
 
 #include "io_uring.h"
-#include "tctx.h"
 #include "napi.h"
 #include "sqpoll.h"
 
@@ -41,7 +40,6 @@ void io_sq_thread_unpark(struct io_sq_data *sqd)
 	if (atomic_dec_return(&sqd->park_pending))
 		set_bit(IO_SQ_THREAD_SHOULD_PARK, &sqd->state);
 	mutex_unlock(&sqd->lock);
-	wake_up(&sqd->wait);
 }
 
 void io_sq_thread_park(struct io_sq_data *sqd)
@@ -116,21 +114,29 @@ static struct io_sq_data *io_attach_sq_data(struct io_uring_params *p)
 {
 	struct io_ring_ctx *ctx_attach;
 	struct io_sq_data *sqd;
-	CLASS(fd, f)(p->wq_fd);
+	struct fd f;
 
-	if (fd_empty(f))
+	f = fdget(p->wq_fd);
+	if (!fd_file(f))
 		return ERR_PTR(-ENXIO);
-	if (!io_is_uring_fops(fd_file(f)))
+	if (!io_is_uring_fops(fd_file(f))) {
+		fdput(f);
 		return ERR_PTR(-EINVAL);
+	}
 
 	ctx_attach = fd_file(f)->private_data;
 	sqd = ctx_attach->sq_data;
-	if (!sqd)
+	if (!sqd) {
+		fdput(f);
 		return ERR_PTR(-EINVAL);
-	if (sqd->task_tgid != current->tgid)
+	}
+	if (sqd->task_tgid != current->tgid) {
+		fdput(f);
 		return ERR_PTR(-EPERM);
+	}
 
 	refcount_inc(&sqd->refs);
+	fdput(f);
 	return sqd;
 }
 
@@ -217,7 +223,7 @@ static bool io_sqd_handle_event(struct io_sq_data *sqd)
 		mutex_unlock(&sqd->lock);
 		if (signal_pending(current))
 			did_sig = get_signal(&ksig);
-		wait_event(sqd->wait, !atomic_read(&sqd->park_pending));
+		cond_resched();
 		mutex_lock(&sqd->lock);
 		sqd->sq_cpu = raw_smp_processor_id();
 	}
@@ -273,7 +279,7 @@ static int io_sq_thread(void *data)
 	struct io_ring_ctx *ctx;
 	struct rusage start;
 	unsigned long timeout = 0;
-	char buf[TASK_COMM_LEN] = {};
+	char buf[TASK_COMM_LEN];
 	DEFINE_WAIT(wait);
 
 	/* offload context creation failed, just exit */
@@ -425,11 +431,16 @@ __cold int io_sq_offload_create(struct io_ring_ctx *ctx,
 	/* Retain compatibility with failing for an invalid attach attempt */
 	if ((ctx->flags & (IORING_SETUP_ATTACH_WQ | IORING_SETUP_SQPOLL)) ==
 				IORING_SETUP_ATTACH_WQ) {
-		CLASS(fd, f)(p->wq_fd);
-		if (fd_empty(f))
+		struct fd f;
+
+		f = fdget(p->wq_fd);
+		if (!fd_file(f))
 			return -ENXIO;
-		if (!io_is_uring_fops(fd_file(f)))
+		if (!io_is_uring_fops(fd_file(f))) {
+			fdput(f);
 			return -EINVAL;
+		}
+		fdput(f);
 	}
 	if (ctx->flags & IORING_SETUP_SQPOLL) {
 		struct task_struct *tsk;

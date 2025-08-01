@@ -1137,6 +1137,7 @@ static inline void pipapo_resmap_init_avx2(const struct nft_pipapo_match *m, uns
  * @net:	Network namespace
  * @set:	nftables API set representation
  * @key:	nftables API element representation containing key data
+ * @ext:	nftables API extension pointer, filled with matching reference
  *
  * For more details, see DOC: Theory of Operation in nft_set_pipapo.c.
  *
@@ -1145,9 +1146,8 @@ static inline void pipapo_resmap_init_avx2(const struct nft_pipapo_match *m, uns
  *
  * Return: true on match, false otherwise.
  */
-const struct nft_set_ext *
-nft_pipapo_avx2_lookup(const struct net *net, const struct nft_set *set,
-		       const u32 *key)
+bool nft_pipapo_avx2_lookup(const struct net *net, const struct nft_set *set,
+			    const u32 *key, const struct nft_set_ext **ext)
 {
 	struct nft_pipapo *priv = nft_set_priv(set);
 	struct nft_pipapo_scratch *scratch;
@@ -1155,18 +1155,17 @@ nft_pipapo_avx2_lookup(const struct net *net, const struct nft_set *set,
 	const struct nft_pipapo_match *m;
 	const struct nft_pipapo_field *f;
 	const u8 *rp = (const u8 *)key;
-	const struct nft_set_ext *ext;
 	unsigned long *res, *fill;
 	bool map_index;
-	int i;
+	int i, ret = 0;
 
 	local_bh_disable();
 
 	if (unlikely(!irq_fpu_usable())) {
-		ext = nft_pipapo_lookup(net, set, key);
+		bool fallback_res = nft_pipapo_lookup(net, set, key, ext);
 
 		local_bh_enable();
-		return ext;
+		return fallback_res;
 	}
 
 	m = rcu_dereference(priv->match);
@@ -1183,7 +1182,7 @@ nft_pipapo_avx2_lookup(const struct net *net, const struct nft_set *set,
 	if (unlikely(!scratch)) {
 		kernel_fpu_end();
 		local_bh_enable();
-		return NULL;
+		return false;
 	}
 
 	map_index = scratch->map_index;
@@ -1198,7 +1197,6 @@ nft_pipapo_avx2_lookup(const struct net *net, const struct nft_set *set,
 next_match:
 	nft_pipapo_for_each_field(f, i, m) {
 		bool last = i == m->field_count - 1, first = !i;
-		int ret = 0;
 
 #define NFT_SET_PIPAPO_AVX2_LOOKUP(b, n)				\
 		(ret = nft_pipapo_avx2_lookup_##b##b_##n(res, fill, f,	\
@@ -1246,10 +1244,10 @@ next_match:
 			goto out;
 
 		if (last) {
-			ext = &f->mt[ret].e->ext;
-			if (unlikely(nft_set_elem_expired(ext) ||
-				     !nft_set_elem_active(ext, genmask))) {
-				ext = NULL;
+			*ext = &f->mt[ret].e->ext;
+			if (unlikely(nft_set_elem_expired(*ext) ||
+				     !nft_set_elem_active(*ext, genmask))) {
+				ret = 0;
 				goto next_match;
 			}
 
@@ -1266,5 +1264,5 @@ out:
 	kernel_fpu_end();
 	local_bh_enable();
 
-	return ext;
+	return ret >= 0;
 }

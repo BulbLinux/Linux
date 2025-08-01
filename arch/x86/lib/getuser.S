@@ -28,22 +28,25 @@
 
 #include <linux/export.h>
 #include <linux/linkage.h>
-#include <linux/objtool.h>
 #include <asm/page_types.h>
 #include <asm/errno.h>
 #include <asm/asm-offsets.h>
 #include <asm/thread_info.h>
 #include <asm/asm.h>
 #include <asm/smap.h>
-#include <asm/runtime-const.h>
 
 #define ASM_BARRIER_NOSPEC ALTERNATIVE "", "lfence", X86_FEATURE_LFENCE_RDTSC
 
 .macro check_range size:req
 .if IS_ENABLED(CONFIG_X86_64)
-	RUNTIME_CONST_PTR USER_PTR_MAX, rdx
-	cmp %rdx, %rax
-	cmova %rdx, %rax
+	movq $0x0123456789abcdef,%rdx
+  1:
+  .pushsection runtime_ptr_USER_PTR_MAX,"a"
+	.long 1b - 8 - .
+  .popsection
+	cmp %rax, %rdx
+	sbb %rdx, %rdx
+	or %rdx, %rax
 .else
 	cmp $TASK_SIZE_MAX-\size+1, %eax
 	jae .Lbad_get_user
@@ -60,7 +63,6 @@
 
 	.text
 SYM_FUNC_START(__get_user_1)
-	ANNOTATE_NOENDBR
 	check_range size=1
 	ASM_STAC
 	UACCESS movzbl (%_ASM_AX),%edx
@@ -71,7 +73,6 @@ SYM_FUNC_END(__get_user_1)
 EXPORT_SYMBOL(__get_user_1)
 
 SYM_FUNC_START(__get_user_2)
-	ANNOTATE_NOENDBR
 	check_range size=2
 	ASM_STAC
 	UACCESS movzwl (%_ASM_AX),%edx
@@ -82,7 +83,6 @@ SYM_FUNC_END(__get_user_2)
 EXPORT_SYMBOL(__get_user_2)
 
 SYM_FUNC_START(__get_user_4)
-	ANNOTATE_NOENDBR
 	check_range size=4
 	ASM_STAC
 	UACCESS movl (%_ASM_AX),%edx
@@ -93,7 +93,6 @@ SYM_FUNC_END(__get_user_4)
 EXPORT_SYMBOL(__get_user_4)
 
 SYM_FUNC_START(__get_user_8)
-	ANNOTATE_NOENDBR
 #ifndef CONFIG_X86_64
 	xor %ecx,%ecx
 #endif
@@ -113,7 +112,6 @@ EXPORT_SYMBOL(__get_user_8)
 
 /* .. and the same for __get_user, just without the range checks */
 SYM_FUNC_START(__get_user_nocheck_1)
-	ANNOTATE_NOENDBR
 	ASM_STAC
 	ASM_BARRIER_NOSPEC
 	UACCESS movzbl (%_ASM_AX),%edx
@@ -124,7 +122,6 @@ SYM_FUNC_END(__get_user_nocheck_1)
 EXPORT_SYMBOL(__get_user_nocheck_1)
 
 SYM_FUNC_START(__get_user_nocheck_2)
-	ANNOTATE_NOENDBR
 	ASM_STAC
 	ASM_BARRIER_NOSPEC
 	UACCESS movzwl (%_ASM_AX),%edx
@@ -135,7 +132,6 @@ SYM_FUNC_END(__get_user_nocheck_2)
 EXPORT_SYMBOL(__get_user_nocheck_2)
 
 SYM_FUNC_START(__get_user_nocheck_4)
-	ANNOTATE_NOENDBR
 	ASM_STAC
 	ASM_BARRIER_NOSPEC
 	UACCESS movl (%_ASM_AX),%edx
@@ -146,7 +142,6 @@ SYM_FUNC_END(__get_user_nocheck_4)
 EXPORT_SYMBOL(__get_user_nocheck_4)
 
 SYM_FUNC_START(__get_user_nocheck_8)
-	ANNOTATE_NOENDBR
 	ASM_STAC
 	ASM_BARRIER_NOSPEC
 #ifdef CONFIG_X86_64

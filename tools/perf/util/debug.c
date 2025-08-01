@@ -27,7 +27,7 @@
 #include <linux/ctype.h>
 
 #ifdef HAVE_LIBTRACEEVENT
-#include <event-parse.h>
+#include <traceevent/event-parse.h>
 #else
 #define LIBTRACEEVENT_VERSION 0
 #endif

@@ -52,13 +52,6 @@ enum {
 	IS_PREALLOC,		/* nat entry is preallocated */
 };
 
-/* For node type in __get_node_folio() */
-enum node_type {
-	NODE_TYPE_REGULAR,
-	NODE_TYPE_INODE,
-	NODE_TYPE_XATTR,
-};
-
 /*
  * For node information
  */
@@ -255,7 +248,7 @@ static inline nid_t nid_of_node(struct page *node_page)
 	return le32_to_cpu(rn->footer.nid);
 }
 
-static inline unsigned int ofs_of_node(const struct page *node_page)
+static inline unsigned int ofs_of_node(struct page *node_page)
 {
 	struct f2fs_node *rn = F2FS_NODE(node_page);
 	unsigned flag = le32_to_cpu(rn->footer.flag);
@@ -268,9 +261,9 @@ static inline __u64 cpver_of_node(struct page *node_page)
 	return le64_to_cpu(rn->footer.cp_ver);
 }
 
-static inline block_t next_blkaddr_of_node(struct folio *node_folio)
+static inline block_t next_blkaddr_of_node(struct page *node_page)
 {
-	struct f2fs_node *rn = F2FS_NODE(&node_folio->page);
+	struct f2fs_node *rn = F2FS_NODE(node_page);
 	return le32_to_cpu(rn->footer.next_blkaddr);
 }
 
@@ -349,7 +342,7 @@ static inline bool is_recoverable_dnode(struct page *page)
  *                 `- indirect node ((6 + 2N) + (N - 1)(N + 1))
  *                       `- direct node
  */
-static inline bool IS_DNODE(const struct page *node_page)
+static inline bool IS_DNODE(struct page *node_page)
 {
 	unsigned int ofs = ofs_of_node(node_page);
 
@@ -367,17 +360,17 @@ static inline bool IS_DNODE(const struct page *node_page)
 	return true;
 }
 
-static inline int set_nid(struct folio *folio, int off, nid_t nid, bool i)
+static inline int set_nid(struct page *p, int off, nid_t nid, bool i)
 {
-	struct f2fs_node *rn = F2FS_NODE(&folio->page);
+	struct f2fs_node *rn = F2FS_NODE(p);
 
-	f2fs_folio_wait_writeback(folio, NODE, true, true);
+	f2fs_wait_on_page_writeback(p, NODE, true, true);
 
 	if (i)
 		rn->i.i_nid[off - NODE_DIR1_BLOCK] = cpu_to_le32(nid);
 	else
 		rn->in.nid[off] = cpu_to_le32(nid);
-	return folio_mark_dirty(folio);
+	return set_page_dirty(p);
 }
 
 static inline nid_t get_nid(struct page *p, int off, bool i)
@@ -396,7 +389,7 @@ static inline nid_t get_nid(struct page *p, int off, bool i)
  *  - Mark cold data pages in page cache
  */
 
-static inline int is_node(const struct page *page, int type)
+static inline int is_node(struct page *page, int type)
 {
 	struct f2fs_node *rn = F2FS_NODE(page);
 	return le32_to_cpu(rn->footer.flag) & BIT(type);

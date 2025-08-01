@@ -712,13 +712,8 @@ void netvsc_device_remove(struct hv_device *device)
 	for (i = 0; i < net_device->num_chn; i++) {
 		/* See also vmbus_reset_channel_cb(). */
 		/* only disable enabled NAPI channel */
-		if (i < ndev->real_num_rx_queues) {
-			netif_queue_set_napi(ndev, i, NETDEV_QUEUE_TYPE_TX,
-					     NULL);
-			netif_queue_set_napi(ndev, i, NETDEV_QUEUE_TYPE_RX,
-					     NULL);
+		if (i < ndev->real_num_rx_queues)
 			napi_disable(&net_device->chan_table[i].napi);
-		}
 
 		netif_napi_del(&net_device->chan_table[i].napi);
 	}
@@ -866,8 +861,7 @@ static void netvsc_send_completion(struct net_device *ndev,
 
 	case NVSP_MSG1_TYPE_SEND_RECV_BUF_COMPLETE:
 		if (msglen < sizeof(struct nvsp_message_header) +
-				struct_size_t(struct nvsp_1_message_send_receive_buffer_complete,
-					      sections, 1)) {
+				sizeof(struct nvsp_1_message_send_receive_buffer_complete)) {
 			netdev_err(ndev, "nvsp_msg1 length too small: %u\n",
 				   msglen);
 			return;
@@ -1832,10 +1826,6 @@ struct netvsc_device *netvsc_device_add(struct hv_device *device,
 	netdev_dbg(ndev, "hv_netvsc channel opened successfully\n");
 
 	napi_enable(&net_device->chan_table[0].napi);
-	netif_queue_set_napi(ndev, 0, NETDEV_QUEUE_TYPE_RX,
-			     &net_device->chan_table[0].napi);
-	netif_queue_set_napi(ndev, 0, NETDEV_QUEUE_TYPE_TX,
-			     &net_device->chan_table[0].napi);
 
 	/* Connect with the NetVsp */
 	ret = netvsc_connect_vsp(device, net_device, device_info);
@@ -1854,8 +1844,6 @@ struct netvsc_device *netvsc_device_add(struct hv_device *device,
 
 close:
 	RCU_INIT_POINTER(net_device_ctx->nvdev, NULL);
-	netif_queue_set_napi(ndev, 0, NETDEV_QUEUE_TYPE_TX, NULL);
-	netif_queue_set_napi(ndev, 0, NETDEV_QUEUE_TYPE_RX, NULL);
 	napi_disable(&net_device->chan_table[0].napi);
 
 	/* Now, we can close the channel safely */

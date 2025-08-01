@@ -92,7 +92,6 @@ struct lpspi_config {
 	u8 prescale;
 	u16 mode;
 	u32 speed_hz;
-	u32 effective_speed_hz;
 };
 
 struct fsl_lpspi_data {
@@ -233,6 +232,7 @@ static int lpspi_unprepare_xfer_hardware(struct spi_controller *controller)
 	struct fsl_lpspi_data *fsl_lpspi =
 				spi_controller_get_devdata(controller);
 
+	pm_runtime_mark_last_busy(fsl_lpspi->dev);
 	pm_runtime_put_autosuspend(fsl_lpspi->dev);
 
 	return 0;
@@ -351,10 +351,7 @@ static int fsl_lpspi_set_bitrate(struct fsl_lpspi_data *fsl_lpspi)
 	writel(scldiv | (scldiv << 8) | ((scldiv >> 1) << 16),
 					fsl_lpspi->base + IMX7ULP_CCR);
 
-	fsl_lpspi->config.effective_speed_hz = perclk_rate / (scldiv + 2) *
-					       (1 << prescale);
-
-	dev_dbg(fsl_lpspi->dev, "perclk=%u, speed=%u, prescale=%u, scldiv=%d\n",
+	dev_dbg(fsl_lpspi->dev, "perclk=%d, speed=%d, prescale=%d, scldiv=%d\n",
 		perclk_rate, config.speed_hz, prescale, scldiv);
 
 	return 0;
@@ -571,7 +568,7 @@ static int fsl_lpspi_calculate_timeout(struct fsl_lpspi_data *fsl_lpspi,
 	timeout += 1;
 
 	/* Double calculated timeout */
-	return secs_to_jiffies(2 * timeout);
+	return msecs_to_jiffies(2 * timeout * MSEC_PER_SEC);
 }
 
 static int fsl_lpspi_dma_transfer(struct spi_controller *controller,
@@ -752,8 +749,6 @@ static int fsl_lpspi_transfer_one(struct spi_controller *controller,
 	ret = fsl_lpspi_setup_transfer(controller, spi, t);
 	if (ret < 0)
 		return ret;
-
-	t->effective_speed_hz = fsl_lpspi->config.effective_speed_hz;
 
 	fsl_lpspi_set_cmd(fsl_lpspi);
 	fsl_lpspi->is_first_byte = false;
@@ -965,6 +960,7 @@ static int fsl_lpspi_probe(struct platform_device *pdev)
 		goto free_dma;
 	}
 
+	pm_runtime_mark_last_busy(fsl_lpspi->dev);
 	pm_runtime_put_autosuspend(fsl_lpspi->dev);
 
 	return 0;
@@ -1025,7 +1021,7 @@ static struct platform_driver fsl_lpspi_driver = {
 		.pm = pm_ptr(&fsl_lpspi_pm_ops),
 	},
 	.probe = fsl_lpspi_probe,
-	.remove = fsl_lpspi_remove,
+	.remove_new = fsl_lpspi_remove,
 };
 module_platform_driver(fsl_lpspi_driver);
 

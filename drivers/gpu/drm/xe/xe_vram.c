@@ -49,7 +49,7 @@ _resize_bar(struct xe_device *xe, int resno, resource_size_t size)
  */
 static void resize_vram_bar(struct xe_device *xe)
 {
-	int force_vram_bar_size = xe_modparam.force_vram_bar_size;
+	u64 force_vram_bar_size = xe_modparam.force_vram_bar_size;
 	struct pci_dev *pdev = to_pci_dev(xe->drm.dev);
 	struct pci_bus *root = pdev->bus;
 	resource_size_t current_size;
@@ -64,9 +64,6 @@ static void resize_vram_bar(struct xe_device *xe)
 	bar_size_mask = pci_rebar_get_possible_sizes(pdev, LMEM_BAR);
 
 	if (!bar_size_mask)
-		return;
-
-	if (force_vram_bar_size < 0)
 		return;
 
 	/* set to a specific size? */
@@ -172,7 +169,7 @@ static inline u64 get_flat_ccs_offset(struct xe_gt *gt, u64 tile_size)
 		u64 offset_hi, offset_lo;
 		u32 nodes, num_enabled;
 
-		reg = xe_mmio_read32(&gt->mmio, MIRROR_FUSE3);
+		reg = xe_mmio_read32(gt, MIRROR_FUSE3);
 		nodes = REG_FIELD_GET(XE2_NODE_ENABLE_MASK, reg);
 		num_enabled = hweight32(nodes); /* Number of enabled l3 nodes */
 
@@ -188,8 +185,7 @@ static inline u64 get_flat_ccs_offset(struct xe_gt *gt, u64 tile_size)
 		offset = round_up(offset, SZ_128K); /* SW must round up to nearest 128K */
 
 		/* We don't expect any holes */
-		xe_assert_msg(xe, offset == (xe_mmio_read64_2x32(&gt_to_tile(gt)->mmio, GSMBASE) -
-					     ccs_size),
+		xe_assert_msg(xe, offset == (xe_mmio_read64_2x32(gt, GSMBASE) - ccs_size),
 			      "Hole between CCS and GSM.\n");
 	} else {
 		reg = xe_gt_mcr_unicast_read_any(gt, XEHP_FLAT_CCS_BASE_ADDR);
@@ -223,8 +219,8 @@ static int tile_vram_size(struct xe_tile *tile, u64 *vram_size,
 {
 	struct xe_device *xe = tile_to_xe(tile);
 	struct xe_gt *gt = tile->primary_gt;
-	unsigned int fw_ref;
 	u64 offset;
+	int err;
 	u32 reg;
 
 	if (IS_SRIOV_VF(xe)) {
@@ -243,9 +239,9 @@ static int tile_vram_size(struct xe_tile *tile, u64 *vram_size,
 		return 0;
 	}
 
-	fw_ref = xe_force_wake_get(gt_to_fw(gt), XE_FW_GT);
-	if (!fw_ref)
-		return -ETIMEDOUT;
+	err = xe_force_wake_get(gt_to_fw(gt), XE_FW_GT);
+	if (err)
+		return err;
 
 	/* actual size */
 	if (unlikely(xe->info.platform == XE_DG1)) {
@@ -261,15 +257,13 @@ static int tile_vram_size(struct xe_tile *tile, u64 *vram_size,
 	if (xe->info.has_flat_ccs) {
 		offset = get_flat_ccs_offset(gt, *tile_size);
 	} else {
-		offset = xe_mmio_read64_2x32(&tile->mmio, GSMBASE);
+		offset = xe_mmio_read64_2x32(gt, GSMBASE);
 	}
 
 	/* remove the tile offset so we have just the available size */
 	*vram_size = offset - *tile_offset;
 
-	xe_force_wake_put(gt_to_fw(gt), fw_ref);
-
-	return 0;
+	return xe_force_wake_put(gt_to_fw(gt), XE_FW_GT);
 }
 
 static void vram_fini(void *arg)

@@ -13,7 +13,6 @@
 #include "xe_gt_sriov_pf_config.h"
 #include "xe_gt_sriov_pf_control.h"
 #include "xe_gt_sriov_pf_helpers.h"
-#include "xe_gt_sriov_pf_migration.h"
 #include "xe_gt_sriov_pf_service.h"
 #include "xe_gt_sriov_printk.h"
 #include "xe_mmio.h"
@@ -79,25 +78,6 @@ int xe_gt_sriov_pf_init_early(struct xe_gt *gt)
 	return 0;
 }
 
-/**
- * xe_gt_sriov_pf_init - Prepare SR-IOV PF data structures on PF.
- * @gt: the &xe_gt to initialize
- *
- * Late one-time initialization of the PF data.
- *
- * Return: 0 on success or a negative error code on failure.
- */
-int xe_gt_sriov_pf_init(struct xe_gt *gt)
-{
-	int err;
-
-	err = xe_gt_sriov_pf_config_init(gt);
-	if (err)
-		return err;
-
-	return xe_gt_sriov_pf_migration_init(gt);
-}
-
 static bool pf_needs_enable_ggtt_guest_update(struct xe_device *xe)
 {
 	return GRAPHICS_VERx100(xe) == 1200;
@@ -105,7 +85,7 @@ static bool pf_needs_enable_ggtt_guest_update(struct xe_device *xe)
 
 static void pf_enable_ggtt_guest_update(struct xe_gt *gt)
 {
-	xe_mmio_write32(&gt->mmio, VIRTUAL_CTRL_REG, GUEST_GTT_UPDATE_EN);
+	xe_mmio_write32(gt, VIRTUAL_CTRL_REG, GUEST_GTT_UPDATE_EN);
 }
 
 /**
@@ -147,13 +127,13 @@ static void pf_clear_vf_scratch_regs(struct xe_gt *gt, unsigned int vfid)
 		count = MED_VF_SW_FLAG_COUNT;
 		for (n = 0; n < count; n++) {
 			scratch = xe_reg_vf_to_pf(MED_VF_SW_FLAG(n), vfid, stride);
-			xe_mmio_write32(&gt->mmio, scratch, 0);
+			xe_mmio_write32(gt, scratch, 0);
 		}
 	} else {
 		count = VF_SW_FLAG_COUNT;
 		for (n = 0; n < count; n++) {
 			scratch = xe_reg_vf_to_pf(VF_SW_FLAG(n), vfid, stride);
-			xe_mmio_write32(&gt->mmio, scratch, 0);
+			xe_mmio_write32(gt, scratch, 0);
 		}
 	}
 }

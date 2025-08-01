@@ -287,8 +287,10 @@ static int nau8821_biq_coeff_get(struct snd_kcontrol *kcontrol,
 	if (!component->regmap)
 		return -EINVAL;
 
-	return regmap_raw_read(component->regmap, NAU8821_R21_BIQ0_COF1,
+	regmap_raw_read(component->regmap, NAU8821_R21_BIQ0_COF1,
 		ucontrol->value.bytes.data, params->max);
+
+	return 0;
 }
 
 static int nau8821_biq_coeff_put(struct snd_kcontrol *kcontrol,
@@ -297,7 +299,6 @@ static int nau8821_biq_coeff_put(struct snd_kcontrol *kcontrol,
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct soc_bytes_ext *params = (void *)kcontrol->private_value;
 	void *data;
-	int ret;
 
 	if (!component->regmap)
 		return -EINVAL;
@@ -307,12 +308,12 @@ static int nau8821_biq_coeff_put(struct snd_kcontrol *kcontrol,
 	if (!data)
 		return -ENOMEM;
 
-	ret = regmap_raw_write(component->regmap, NAU8821_R21_BIQ0_COF1,
+	regmap_raw_write(component->regmap, NAU8821_R21_BIQ0_COF1,
 		data, params->max);
 
 	kfree(data);
 
-	return ret;
+	return 0;
 }
 
 static const char * const nau8821_adc_decimation[] = {

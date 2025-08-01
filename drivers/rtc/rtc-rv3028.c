@@ -120,9 +120,8 @@ static ssize_t timestamp0_show(struct device *dev,
 {
 	struct rv3028_data *rv3028 = dev_get_drvdata(dev->parent);
 	struct rtc_time tm;
-	unsigned int count;
+	int ret, count;
 	u8 date[6];
-	int ret;
 
 	ret = regmap_read(rv3028->regmap, RV3028_TS_COUNT, &count);
 	if (ret)
@@ -157,8 +156,7 @@ static ssize_t timestamp0_count_show(struct device *dev,
 				     struct device_attribute *attr, char *buf)
 {
 	struct rv3028_data *rv3028 = dev_get_drvdata(dev->parent);
-	unsigned int count;
-	int ret;
+	int ret, count;
 
 	ret = regmap_read(rv3028->regmap, RV3028_TS_COUNT, &count);
 	if (ret)

@@ -213,7 +213,6 @@ bvec_overflow:
 	pr_warn_once("%s: bio_vec array overflow\n", __func__);
 	return count - 1;
 }
-EXPORT_SYMBOL_GPL(xdr_buf_to_bvec);
 
 /**
  * xdr_inline_pages - Prepare receive buffer for a large reply
@@ -993,18 +992,21 @@ EXPORT_SYMBOL_GPL(xdr_init_encode);
  * xdr_init_encode_pages - Initialize an xdr_stream for encoding into pages
  * @xdr: pointer to xdr_stream struct
  * @buf: pointer to XDR buffer into which to encode data
+ * @pages: list of pages to decode into
+ * @rqst: pointer to controlling rpc_rqst, for debugging
  *
  */
-void xdr_init_encode_pages(struct xdr_stream *xdr, struct xdr_buf *buf)
+void xdr_init_encode_pages(struct xdr_stream *xdr, struct xdr_buf *buf,
+			   struct page **pages, struct rpc_rqst *rqst)
 {
 	xdr_reset_scratch_buffer(xdr);
 
 	xdr->buf = buf;
-	xdr->page_ptr = buf->pages;
+	xdr->page_ptr = pages;
 	xdr->iov = NULL;
-	xdr->p = page_address(*xdr->page_ptr);
+	xdr->p = page_address(*pages);
 	xdr->end = (void *)xdr->p + min_t(u32, buf->buflen, PAGE_SIZE);
-	xdr->rqst = NULL;
+	xdr->rqst = rqst;
 }
 EXPORT_SYMBOL_GPL(xdr_init_encode_pages);
 
@@ -1095,12 +1097,6 @@ out_overflow:
  * Checks that we have enough buffer space to encode 'nbytes' more
  * bytes of data. If so, update the total xdr_buf length, and
  * adjust the length of the current kvec.
- *
- * The returned pointer is valid only until the next call to
- * xdr_reserve_space() or xdr_commit_encode() on @xdr. The current
- * implementation of this API guarantees that space reserved for a
- * four-byte data item remains valid until @xdr is destroyed, but
- * that might not always be true in the future.
  */
 __be32 * xdr_reserve_space(struct xdr_stream *xdr, size_t nbytes)
 {

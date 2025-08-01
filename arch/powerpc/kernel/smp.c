@@ -61,7 +61,6 @@
 #include <asm/ftrace.h>
 #include <asm/kup.h>
 #include <asm/fadump.h>
-#include <asm/systemcfg.h>
 
 #include <trace/events/ipi.h>
 
@@ -1187,8 +1186,8 @@ int generic_cpu_disable(void)
 		return -EBUSY;
 
 	set_cpu_online(cpu, false);
-#ifdef CONFIG_PPC64_PROC_SYSTEMCFG
-	systemcfg->processorCount--;
+#ifdef CONFIG_PPC64
+	vdso_data->processorCount--;
 #endif
 	/* Update affinity of all IRQs previously aimed at this CPU */
 	irq_migrate_all_off_this_cpu();
@@ -1643,12 +1642,10 @@ void start_secondary(void *unused)
 
 	secondary_cpu_time_init();
 
-#ifdef CONFIG_PPC64_PROC_SYSTEMCFG
-	if (system_state == SYSTEM_RUNNING)
-		systemcfg->processorCount++;
-#endif
-
 #ifdef CONFIG_PPC64
+	if (system_state == SYSTEM_RUNNING)
+		vdso_data->processorCount++;
+
 	vdso_getcpu_init();
 #endif
 	set_numa_node(numa_cpu_lookup_table[cpu]);
@@ -1700,23 +1697,28 @@ static void __init build_sched_topology(void)
 #ifdef CONFIG_SCHED_SMT
 	if (has_big_cores) {
 		pr_info("Big cores detected but using small core scheduling\n");
-		powerpc_topology[i++] =
-			SDTL_INIT(smallcore_smt_mask, powerpc_smt_flags, SMT);
+		powerpc_topology[i++] = (struct sched_domain_topology_level){
+			smallcore_smt_mask, powerpc_smt_flags, SD_INIT_NAME(SMT)
+		};
 	} else {
-		powerpc_topology[i++] = SDTL_INIT(cpu_smt_mask, powerpc_smt_flags, SMT);
+		powerpc_topology[i++] = (struct sched_domain_topology_level){
+			cpu_smt_mask, powerpc_smt_flags, SD_INIT_NAME(SMT)
+		};
 	}
 #endif
 	if (shared_caches) {
-		powerpc_topology[i++] =
-			SDTL_INIT(shared_cache_mask, powerpc_shared_cache_flags, CACHE);
+		powerpc_topology[i++] = (struct sched_domain_topology_level){
+			shared_cache_mask, powerpc_shared_cache_flags, SD_INIT_NAME(CACHE)
+		};
 	}
-
 	if (has_coregroup_support()) {
-		powerpc_topology[i++] =
-			SDTL_INIT(cpu_mc_mask, powerpc_shared_proc_flags, MC);
+		powerpc_topology[i++] = (struct sched_domain_topology_level){
+			cpu_mc_mask, powerpc_shared_proc_flags, SD_INIT_NAME(MC)
+		};
 	}
-
-	powerpc_topology[i++] = SDTL_INIT(cpu_cpu_mask, powerpc_shared_proc_flags, PKG);
+	powerpc_topology[i++] = (struct sched_domain_topology_level){
+		cpu_cpu_mask, powerpc_shared_proc_flags, SD_INIT_NAME(PKG)
+	};
 
 	/* There must be one trailing NULL entry left.  */
 	BUG_ON(i >= ARRAY_SIZE(powerpc_topology) - 1);

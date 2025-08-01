@@ -13,10 +13,12 @@
  * syscall-specific stuff, as this file is expected to be included very early.
  */
 
-#include "stdint.h"
-#include "stddef.h"
+/* note: may already be defined */
+#ifndef NULL
+#define NULL ((void *)0)
+#endif
 
-#include <linux/types.h>
+#include "stdint.h"
 
 /* those are commonly provided by sys/types.h */
 typedef unsigned int          dev_t;
@@ -29,6 +31,6 @@ typedef unsigned long       nlink_t;
 typedef   signed long         off_t;
 typedef   signed long     blksize_t;
 typedef   signed long      blkcnt_t;
-typedef __kernel_old_time_t  time_t;
+typedef   signed long        time_t;
 
 #endif /* _NOLIBC_STD_H */

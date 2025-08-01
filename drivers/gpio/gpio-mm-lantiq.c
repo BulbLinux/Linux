@@ -55,9 +55,9 @@ static void ltq_mm_apply(struct ltq_mm *chip)
  * @gpio:   GPIO signal number.
  * @val:    Value to be written to specified signal.
  *
- * Set the shadow value and call ltq_mm_apply. Always returns 0.
+ * Set the shadow value and call ltq_mm_apply.
  */
-static int ltq_mm_set(struct gpio_chip *gc, unsigned int offset, int value)
+static void ltq_mm_set(struct gpio_chip *gc, unsigned offset, int value)
 {
 	struct ltq_mm *chip = gpiochip_get_data(gc);
 
@@ -66,8 +66,6 @@ static int ltq_mm_set(struct gpio_chip *gc, unsigned int offset, int value)
 	else
 		chip->shadow &= ~(1 << offset);
 	ltq_mm_apply(chip);
-
-	return 0;
 }
 
 /**
@@ -80,7 +78,9 @@ static int ltq_mm_set(struct gpio_chip *gc, unsigned int offset, int value)
  */
 static int ltq_mm_dir_out(struct gpio_chip *gc, unsigned offset, int value)
 {
-	return ltq_mm_set(gc, offset, value);
+	ltq_mm_set(gc, offset, value);
+
+	return 0;
 }
 
 /**
@@ -111,7 +111,7 @@ static int ltq_mm_probe(struct platform_device *pdev)
 
 	chip->mmchip.gc.ngpio = 16;
 	chip->mmchip.gc.direction_output = ltq_mm_dir_out;
-	chip->mmchip.gc.set_rv = ltq_mm_set;
+	chip->mmchip.gc.set = ltq_mm_set;
 	chip->mmchip.save_regs = ltq_mm_save_regs;
 
 	/* store the shadow value if one was passed by the devicetree */
@@ -136,7 +136,7 @@ MODULE_DEVICE_TABLE(of, ltq_mm_match);
 
 static struct platform_driver ltq_mm_driver = {
 	.probe = ltq_mm_probe,
-	.remove = ltq_mm_remove,
+	.remove_new = ltq_mm_remove,
 	.driver = {
 		.name = "gpio-mm-ltq",
 		.of_match_table = ltq_mm_match,

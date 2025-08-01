@@ -69,14 +69,12 @@ MODULE_PARM_DESC(experimental_zcopytx, "Enable Zero Copy TX;"
 
 #define VHOST_DMA_IS_DONE(len) ((__force u32)(len) >= (__force u32)VHOST_DMA_DONE_LEN)
 
-static const u64 vhost_net_features[VIRTIO_FEATURES_DWORDS] = {
-	VHOST_FEATURES |
-	(1ULL << VHOST_NET_F_VIRTIO_NET_HDR) |
-	(1ULL << VIRTIO_NET_F_MRG_RXBUF) |
-	(1ULL << VIRTIO_F_ACCESS_PLATFORM) |
-	(1ULL << VIRTIO_F_RING_RESET),
-	VIRTIO_BIT(VIRTIO_NET_F_GUEST_UDP_TUNNEL_GSO) |
-	VIRTIO_BIT(VIRTIO_NET_F_HOST_UDP_TUNNEL_GSO),
+enum {
+	VHOST_NET_FEATURES = VHOST_FEATURES |
+			 (1ULL << VHOST_NET_F_VIRTIO_NET_HDR) |
+			 (1ULL << VIRTIO_NET_F_MRG_RXBUF) |
+			 (1ULL << VIRTIO_F_ACCESS_PLATFORM) |
+			 (1ULL << VIRTIO_F_RING_RESET)
 };
 
 enum {
@@ -670,6 +668,7 @@ static int vhost_net_build_xdp(struct vhost_net_virtqueue *nvq,
 	struct socket *sock = vhost_vq_get_backend(vq);
 	struct virtio_net_hdr *gso;
 	struct xdp_buff *xdp = &nvq->xdp[nvq->batched_xdp];
+	struct tun_xdp_hdr *hdr;
 	size_t len = iov_iter_count(from);
 	int headroom = vhost_sock_xdp(sock) ? XDP_PACKET_HEADROOM : 0;
 	int buflen = SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
@@ -692,13 +691,15 @@ static int vhost_net_build_xdp(struct vhost_net_virtqueue *nvq,
 	if (unlikely(!buf))
 		return -ENOMEM;
 
-	copied = copy_from_iter(buf + pad - sock_hlen, len, from);
-	if (copied != len) {
+	copied = copy_from_iter(buf + offsetof(struct tun_xdp_hdr, gso),
+				sock_hlen, from);
+	if (copied != sock_hlen) {
 		ret = -EFAULT;
 		goto err;
 	}
 
-	gso = buf + pad - sock_hlen;
+	hdr = buf;
+	gso = &hdr->gso;
 
 	if (!sock_hlen)
 		memset(buf, 0, pad);
@@ -717,11 +718,16 @@ static int vhost_net_build_xdp(struct vhost_net_virtqueue *nvq,
 		}
 	}
 
-	/* pad contains sock_hlen */
-	memcpy(buf, buf + pad - sock_hlen, sock_hlen);
+	len -= sock_hlen;
+	copied = copy_from_iter(buf + pad, len, from);
+	if (copied != len) {
+		ret = -EFAULT;
+		goto err;
+	}
 
 	xdp_init_buff(xdp, buflen, NULL);
-	xdp_prepare_buff(xdp, buf, pad, len - sock_hlen, true);
+	xdp_prepare_buff(xdp, buf, pad, len, true);
+	hdr->buflen = buflen;
 
 	++nvq->batched_xdp;
 
@@ -749,10 +755,10 @@ static void handle_tx_copy(struct vhost_net *net, struct socket *sock)
 	int err;
 	int sent_pkts = 0;
 	bool sock_can_batch = (sock->sk->sk_sndbuf == INT_MAX);
-	bool busyloop_intr;
 
 	do {
-		busyloop_intr = false;
+		bool busyloop_intr = false;
+
 		if (nvq->done_idx == VHOST_NET_BATCH)
 			vhost_tx_batch(net, nvq, sock, &msg);
 
@@ -763,10 +769,13 @@ static void handle_tx_copy(struct vhost_net *net, struct socket *sock)
 			break;
 		/* Nothing new?  Wait for eventfd to tell us they refilled. */
 		if (head == vq->num) {
-			/* Kicks are disabled at this point, break loop and
-			 * process any remaining batched packets. Queue will
-			 * be re-enabled afterwards.
-			 */
+			if (unlikely(busyloop_intr)) {
+				vhost_poll_queue(&vq->poll);
+			} else if (unlikely(vhost_enable_notify(&net->dev,
+								vq))) {
+				vhost_disable_notify(&net->dev, vq);
+				continue;
+			}
 			break;
 		}
 
@@ -816,22 +825,7 @@ done:
 		++nvq->done_idx;
 	} while (likely(!vhost_exceeds_weight(vq, ++sent_pkts, total_len)));
 
-	/* Kicks are still disabled, dispatch any remaining batched msgs. */
 	vhost_tx_batch(net, nvq, sock, &msg);
-
-	if (unlikely(busyloop_intr))
-		/* If interrupted while doing busy polling, requeue the
-		 * handler to be fair handle_rx as well as other tasks
-		 * waiting on cpu.
-		 */
-		vhost_poll_queue(&vq->poll);
-	else
-		/* All of our work has been completed; however, before
-		 * leaving the TX handler, do one last check for work,
-		 * and requeue handler if necessary. If there is no work,
-		 * queue will be reenabled.
-		 */
-		vhost_net_busy_poll_try_queue(net, vq);
 }
 
 static void handle_tx_zerocopy(struct vhost_net *net, struct socket *sock)
@@ -1113,7 +1107,6 @@ static void handle_rx(struct vhost_net *net)
 	size_t vhost_hlen, sock_hlen;
 	size_t vhost_len, sock_len;
 	bool busyloop_intr = false;
-	bool set_num_buffers;
 	struct socket *sock;
 	struct iov_iter fixup;
 	__virtio16 num_buffers;
@@ -1136,8 +1129,6 @@ static void handle_rx(struct vhost_net *net)
 	vq_log = unlikely(vhost_has_feature(vq, VHOST_F_LOG_ALL)) ?
 		vq->log : NULL;
 	mergeable = vhost_has_feature(vq, VIRTIO_NET_F_MRG_RXBUF);
-	set_num_buffers = mergeable ||
-			  vhost_has_feature(vq, VIRTIO_F_VERSION_1);
 
 	do {
 		sock_len = vhost_net_rx_peek_head_len(net, sock->sk,
@@ -1214,7 +1205,7 @@ static void handle_rx(struct vhost_net *net)
 		/* TODO: Should check and handle checksum. */
 
 		num_buffers = cpu_to_vhost16(vq, headcount);
-		if (likely(set_num_buffers) &&
+		if (likely(mergeable) &&
 		    copy_to_iter(&num_buffers, sizeof num_buffers,
 				 &fixup) != sizeof num_buffers) {
 			vq_err(vq, "Failed num_buffers write");
@@ -1334,7 +1325,7 @@ static int vhost_net_open(struct inode *inode, struct file *f)
 			vqs[VHOST_NET_VQ_RX]);
 
 	f->private_data = n;
-	page_frag_cache_init(&n->pf_cache);
+	n->pf_cache.va = NULL;
 
 	return 0;
 }
@@ -1608,23 +1599,16 @@ done:
 	return err;
 }
 
-static int vhost_net_set_features(struct vhost_net *n, const u64 *features)
+static int vhost_net_set_features(struct vhost_net *n, u64 features)
 {
 	size_t vhost_hlen, sock_hlen, hdr_len;
 	int i;
 
-	hdr_len = virtio_features_test_bit(features, VIRTIO_NET_F_MRG_RXBUF) ||
-		  virtio_features_test_bit(features, VIRTIO_F_VERSION_1) ?
-		  sizeof(struct virtio_net_hdr_mrg_rxbuf) :
-		  sizeof(struct virtio_net_hdr);
-
-	if (virtio_features_test_bit(features,
-				     VIRTIO_NET_F_HOST_UDP_TUNNEL_GSO) ||
-	    virtio_features_test_bit(features,
-				     VIRTIO_NET_F_GUEST_UDP_TUNNEL_GSO))
-		hdr_len = sizeof(struct virtio_net_hdr_v1_hash_tunnel);
-
-	if (virtio_features_test_bit(features, VHOST_NET_F_VIRTIO_NET_HDR)) {
+	hdr_len = (features & ((1ULL << VIRTIO_NET_F_MRG_RXBUF) |
+			       (1ULL << VIRTIO_F_VERSION_1))) ?
+			sizeof(struct virtio_net_hdr_mrg_rxbuf) :
+			sizeof(struct virtio_net_hdr);
+	if (features & (1 << VHOST_NET_F_VIRTIO_NET_HDR)) {
 		/* vhost provides vnet_hdr */
 		vhost_hlen = hdr_len;
 		sock_hlen = 0;
@@ -1634,19 +1618,18 @@ static int vhost_net_set_features(struct vhost_net *n, const u64 *features)
 		sock_hlen = hdr_len;
 	}
 	mutex_lock(&n->dev.mutex);
-	if (virtio_features_test_bit(features, VHOST_F_LOG_ALL) &&
+	if ((features & (1 << VHOST_F_LOG_ALL)) &&
 	    !vhost_log_access_ok(&n->dev))
 		goto out_unlock;
 
-	if (virtio_features_test_bit(features, VIRTIO_F_ACCESS_PLATFORM)) {
+	if ((features & (1ULL << VIRTIO_F_ACCESS_PLATFORM))) {
 		if (vhost_init_device_iotlb(&n->dev))
 			goto out_unlock;
 	}
 
 	for (i = 0; i < VHOST_NET_VQ_MAX; ++i) {
 		mutex_lock(&n->vqs[i].vq.mutex);
-		virtio_features_copy(n->vqs[i].vq.acked_features_array,
-				     features);
+		n->vqs[i].vq.acked_features = features;
 		n->vqs[i].vhost_hlen = vhost_hlen;
 		n->vqs[i].sock_hlen = sock_hlen;
 		mutex_unlock(&n->vqs[i].vq.mutex);
@@ -1683,13 +1666,12 @@ out:
 static long vhost_net_ioctl(struct file *f, unsigned int ioctl,
 			    unsigned long arg)
 {
-	u64 all_features[VIRTIO_FEATURES_DWORDS];
 	struct vhost_net *n = f->private_data;
 	void __user *argp = (void __user *)arg;
 	u64 __user *featurep = argp;
 	struct vhost_vring_file backend;
-	u64 features, count, copied;
-	int r, i;
+	u64 features;
+	int r;
 
 	switch (ioctl) {
 	case VHOST_NET_SET_BACKEND:
@@ -1697,60 +1679,16 @@ static long vhost_net_ioctl(struct file *f, unsigned int ioctl,
 			return -EFAULT;
 		return vhost_net_set_backend(n, backend.index, backend.fd);
 	case VHOST_GET_FEATURES:
-		features = vhost_net_features[0];
+		features = VHOST_NET_FEATURES;
 		if (copy_to_user(featurep, &features, sizeof features))
 			return -EFAULT;
 		return 0;
 	case VHOST_SET_FEATURES:
 		if (copy_from_user(&features, featurep, sizeof features))
 			return -EFAULT;
-		if (features & ~vhost_net_features[0])
+		if (features & ~VHOST_NET_FEATURES)
 			return -EOPNOTSUPP;
-
-		virtio_features_from_u64(all_features, features);
-		return vhost_net_set_features(n, all_features);
-	case VHOST_GET_FEATURES_ARRAY:
-		if (copy_from_user(&count, featurep, sizeof(count)))
-			return -EFAULT;
-
-		/* Copy the net features, up to the user-provided buffer size */
-		argp += sizeof(u64);
-		copied = min(count, VIRTIO_FEATURES_DWORDS);
-		if (copy_to_user(argp, vhost_net_features,
-				 copied * sizeof(u64)))
-			return -EFAULT;
-
-		/* Zero the trailing space provided by user-space, if any */
-		if (clear_user(argp, size_mul(count - copied, sizeof(u64))))
-			return -EFAULT;
-		return 0;
-	case VHOST_SET_FEATURES_ARRAY:
-		if (copy_from_user(&count, featurep, sizeof(count)))
-			return -EFAULT;
-
-		virtio_features_zero(all_features);
-		argp += sizeof(u64);
-		copied = min(count, VIRTIO_FEATURES_DWORDS);
-		if (copy_from_user(all_features, argp, copied * sizeof(u64)))
-			return -EFAULT;
-
-		/*
-		 * Any feature specified by user-space above
-		 * VIRTIO_FEATURES_MAX is not supported by definition.
-		 */
-		for (i = copied; i < count; ++i) {
-			if (copy_from_user(&features, featurep + 1 + i,
-					   sizeof(features)))
-				return -EFAULT;
-			if (features)
-				return -EOPNOTSUPP;
-		}
-
-		for (i = 0; i < VIRTIO_FEATURES_DWORDS; i++)
-			if (all_features[i] & ~vhost_net_features[i])
-				return -EOPNOTSUPP;
-
-		return vhost_net_set_features(n, all_features);
+		return vhost_net_set_features(n, features);
 	case VHOST_GET_BACKEND_FEATURES:
 		features = VHOST_NET_BACKEND_FEATURES;
 		if (copy_to_user(featurep, &features, sizeof(features)))

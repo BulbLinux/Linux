@@ -3472,13 +3472,12 @@ int pm8001_mpi_task_abort_resp(struct pm8001_hba_info *pm8001_ha, void *piomb)
 			   status, tag, scp);
 	switch (status) {
 	case IO_SUCCESS:
-		pm8001_dbg(pm8001_ha, FAIL, "ABORT IO_SUCCESS for tag %#x\n",
-			   tag);
+		pm8001_dbg(pm8001_ha, EH, "IO_SUCCESS\n");
 		ts->resp = SAS_TASK_COMPLETE;
 		ts->stat = SAS_SAM_STAT_GOOD;
 		break;
 	case IO_NOT_VALID:
-		pm8001_dbg(pm8001_ha, FAIL, "IO_NOT_VALID for tag %#x\n", tag);
+		pm8001_dbg(pm8001_ha, EH, "IO_NOT_VALID\n");
 		ts->resp = TMF_RESP_FUNC_FAILED;
 		break;
 	}

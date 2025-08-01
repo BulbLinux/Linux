@@ -10,7 +10,6 @@
  * Some parts are based on David Boucher's viafb (http://davesdomain.org.uk/viafb/)
  */
 
-#include <linux/export.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/string.h>

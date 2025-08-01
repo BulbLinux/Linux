@@ -3,18 +3,14 @@
  * Copyright © 2023 Intel Corporation
  */
 
-#include <linux/fault-inject.h>
-
 #include <drm/drm_managed.h>
 
 #include "xe_device.h"
 #include "xe_ggtt.h"
 #include "xe_gt.h"
-#include "xe_memirq.h"
 #include "xe_migrate.h"
 #include "xe_pcode.h"
 #include "xe_sa.h"
-#include "xe_svm.h"
 #include "xe_tile.h"
 #include "xe_tile_sysfs.h"
 #include "xe_ttm_vram_mgr.h"
@@ -88,8 +84,16 @@
  */
 static int xe_tile_alloc(struct xe_tile *tile)
 {
-	tile->mem.ggtt = xe_ggtt_alloc(tile);
+	struct drm_device *drm = &tile_to_xe(tile)->drm;
+
+	tile->mem.ggtt = drmm_kzalloc(drm, sizeof(*tile->mem.ggtt),
+				      GFP_KERNEL);
 	if (!tile->mem.ggtt)
+		return -ENOMEM;
+	tile->mem.ggtt->tile = tile;
+
+	tile->mem.vram_mgr = drmm_kzalloc(drm, sizeof(*tile->mem.vram_mgr), GFP_KERNEL);
+	if (!tile->mem.vram_mgr)
 		return -ENOMEM;
 
 	return 0;
@@ -125,7 +129,6 @@ int xe_tile_init_early(struct xe_tile *tile, struct xe_device *xe, u8 id)
 
 	return 0;
 }
-ALLOW_ERROR_INJECTION(xe_tile_init_early, ERRNO); /* See xe_pci_probe() */
 
 static int tile_ttm_mgr_init(struct xe_tile *tile)
 {
@@ -133,7 +136,7 @@ static int tile_ttm_mgr_init(struct xe_tile *tile)
 	int err;
 
 	if (tile->mem.vram.usable_size) {
-		err = xe_ttm_vram_mgr_init(tile, &tile->mem.vram.ttm);
+		err = xe_ttm_vram_mgr_init(tile, tile->mem.vram_mgr);
 		if (err)
 			return err;
 		xe->info.mem_region_mask |= BIT(tile->id) << 1;
@@ -158,7 +161,6 @@ static int tile_ttm_mgr_init(struct xe_tile *tile)
  */
 int xe_tile_init_noalloc(struct xe_tile *tile)
 {
-	struct xe_device *xe = tile_to_xe(tile);
 	int err;
 
 	err = tile_ttm_mgr_init(tile);
@@ -167,20 +169,11 @@ int xe_tile_init_noalloc(struct xe_tile *tile)
 
 	xe_wa_apply_tile_workarounds(tile);
 
-	if (xe->info.has_usm && IS_DGFX(xe))
-		xe_devm_add(tile, &tile->mem.vram);
-
 	return xe_tile_sysfs_init(tile);
 }
 
 int xe_tile_init(struct xe_tile *tile)
 {
-	int err;
-
-	err = xe_memirq_init(&tile->memirq);
-	if (err)
-		return err;
-
 	tile->mem.kernel_bb_pool = xe_sa_bo_manager_init(tile, SZ_1M, 16);
 	if (IS_ERR(tile->mem.kernel_bb_pool))
 		return PTR_ERR(tile->mem.kernel_bb_pool);

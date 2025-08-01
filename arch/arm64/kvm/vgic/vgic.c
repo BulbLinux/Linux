@@ -84,11 +84,17 @@ static struct vgic_irq *vgic_get_lpi(struct kvm *kvm, u32 intid)
  * struct vgic_irq. It also increases the refcount, so any caller is expected
  * to call vgic_put_irq() once it's finished with this IRQ.
  */
-struct vgic_irq *vgic_get_irq(struct kvm *kvm, u32 intid)
+struct vgic_irq *vgic_get_irq(struct kvm *kvm, struct kvm_vcpu *vcpu,
+			      u32 intid)
 {
+	/* SGIs and PPIs */
+	if (intid <= VGIC_MAX_PRIVATE) {
+		intid = array_index_nospec(intid, VGIC_MAX_PRIVATE + 1);
+		return &vcpu->arch.vgic_cpu.private_irqs[intid];
+	}
+
 	/* SPIs */
-	if (intid >= VGIC_NR_PRIVATE_IRQS &&
-	    intid < (kvm->arch.vgic.nr_spis + VGIC_NR_PRIVATE_IRQS)) {
+	if (intid < (kvm->arch.vgic.nr_spis + VGIC_NR_PRIVATE_IRQS)) {
 		intid = array_index_nospec(intid, kvm->arch.vgic.nr_spis + VGIC_NR_PRIVATE_IRQS);
 		return &kvm->arch.vgic.spis[intid - VGIC_NR_PRIVATE_IRQS];
 	}
@@ -98,20 +104,6 @@ struct vgic_irq *vgic_get_irq(struct kvm *kvm, u32 intid)
 		return vgic_get_lpi(kvm, intid);
 
 	return NULL;
-}
-
-struct vgic_irq *vgic_get_vcpu_irq(struct kvm_vcpu *vcpu, u32 intid)
-{
-	if (WARN_ON(!vcpu))
-		return NULL;
-
-	/* SGIs and PPIs */
-	if (intid < VGIC_NR_PRIVATE_IRQS) {
-		intid = array_index_nospec(intid, VGIC_NR_PRIVATE_IRQS);
-		return &vcpu->arch.vgic_cpu.private_irqs[intid];
-	}
-
-	return vgic_get_irq(vcpu->kvm, intid);
 }
 
 /*
@@ -445,10 +437,7 @@ int kvm_vgic_inject_irq(struct kvm *kvm, struct kvm_vcpu *vcpu,
 
 	trace_vgic_update_irq_pending(vcpu ? vcpu->vcpu_idx : 0, intid, level);
 
-	if (intid < VGIC_NR_PRIVATE_IRQS)
-		irq = vgic_get_vcpu_irq(vcpu, intid);
-	else
-		irq = vgic_get_irq(kvm, intid);
+	irq = vgic_get_irq(kvm, vcpu, intid);
 	if (!irq)
 		return -EINVAL;
 
@@ -510,7 +499,7 @@ static inline void kvm_vgic_unmap_irq(struct vgic_irq *irq)
 int kvm_vgic_map_phys_irq(struct kvm_vcpu *vcpu, unsigned int host_irq,
 			  u32 vintid, struct irq_ops *ops)
 {
-	struct vgic_irq *irq = vgic_get_vcpu_irq(vcpu, vintid);
+	struct vgic_irq *irq = vgic_get_irq(vcpu->kvm, vcpu, vintid);
 	unsigned long flags;
 	int ret;
 
@@ -535,7 +524,7 @@ int kvm_vgic_map_phys_irq(struct kvm_vcpu *vcpu, unsigned int host_irq,
  */
 void kvm_vgic_reset_mapped_irq(struct kvm_vcpu *vcpu, u32 vintid)
 {
-	struct vgic_irq *irq = vgic_get_vcpu_irq(vcpu, vintid);
+	struct vgic_irq *irq = vgic_get_irq(vcpu->kvm, vcpu, vintid);
 	unsigned long flags;
 
 	if (!irq->hw)
@@ -558,7 +547,7 @@ int kvm_vgic_unmap_phys_irq(struct kvm_vcpu *vcpu, unsigned int vintid)
 	if (!vgic_initialized(vcpu->kvm))
 		return -EAGAIN;
 
-	irq = vgic_get_vcpu_irq(vcpu, vintid);
+	irq = vgic_get_irq(vcpu->kvm, vcpu, vintid);
 	BUG_ON(!irq);
 
 	raw_spin_lock_irqsave(&irq->irq_lock, flags);
@@ -571,7 +560,7 @@ int kvm_vgic_unmap_phys_irq(struct kvm_vcpu *vcpu, unsigned int vintid)
 
 int kvm_vgic_get_map(struct kvm_vcpu *vcpu, unsigned int vintid)
 {
-	struct vgic_irq *irq = vgic_get_vcpu_irq(vcpu, vintid);
+	struct vgic_irq *irq = vgic_get_irq(vcpu->kvm, vcpu, vintid);
 	unsigned long flags;
 	int ret = -1;
 
@@ -607,7 +596,7 @@ int kvm_vgic_set_owner(struct kvm_vcpu *vcpu, unsigned int intid, void *owner)
 	if (!irq_is_ppi(intid) && !vgic_valid_spi(vcpu->kvm, intid))
 		return -EINVAL;
 
-	irq = vgic_get_vcpu_irq(vcpu, intid);
+	irq = vgic_get_irq(vcpu->kvm, vcpu, intid);
 	raw_spin_lock_irqsave(&irq->irq_lock, flags);
 	if (irq->owner && irq->owner != owner)
 		ret = -EEXIST;
@@ -872,15 +861,6 @@ void kvm_vgic_sync_hwstate(struct kvm_vcpu *vcpu)
 {
 	int used_lrs;
 
-	/* If nesting, emulate the HW effect from L0 to L1 */
-	if (vgic_state_is_nested(vcpu)) {
-		vgic_v3_sync_nested(vcpu);
-		return;
-	}
-
-	if (vcpu_has_nv(vcpu))
-		vgic_v3_nested_update_mi(vcpu);
-
 	/* An empty ap_list_head implies used_lrs == 0 */
 	if (list_empty(&vcpu->arch.vgic_cpu.ap_list_head))
 		return;
@@ -910,35 +890,6 @@ static inline void vgic_restore_state(struct kvm_vcpu *vcpu)
 void kvm_vgic_flush_hwstate(struct kvm_vcpu *vcpu)
 {
 	/*
-	 * If in a nested state, we must return early. Two possibilities:
-	 *
-	 * - If we have any pending IRQ for the guest and the guest
-	 *   expects IRQs to be handled in its virtual EL2 mode (the
-	 *   virtual IMO bit is set) and it is not already running in
-	 *   virtual EL2 mode, then we have to emulate an IRQ
-	 *   exception to virtual EL2.
-	 *
-	 *   We do that by placing a request to ourselves which will
-	 *   abort the entry procedure and inject the exception at the
-	 *   beginning of the run loop.
-	 *
-	 * - Otherwise, do exactly *NOTHING*. The guest state is
-	 *   already loaded, and we can carry on with running it.
-	 *
-	 * If we have NV, but are not in a nested state, compute the
-	 * maintenance interrupt state, as it may fire.
-	 */
-	if (vgic_state_is_nested(vcpu)) {
-		if (kvm_vgic_vcpu_pending_irq(vcpu))
-			kvm_make_request(KVM_REQ_GUEST_HYP_IRQ_PENDING, vcpu);
-
-		return;
-	}
-
-	if (vcpu_has_nv(vcpu))
-		vgic_v3_nested_update_mi(vcpu);
-
-	/*
 	 * If there are no virtual interrupts active or pending for this
 	 * VCPU, then there is no work to do and we can bail out without
 	 * taking any lock.  There is a potential race with someone injecting
@@ -951,7 +902,7 @@ void kvm_vgic_flush_hwstate(struct kvm_vcpu *vcpu)
 	 * can be directly injected (GICv4).
 	 */
 	if (list_empty(&vcpu->arch.vgic_cpu.ap_list_head) &&
-	    !vgic_supports_direct_irqs(vcpu->kvm))
+	    !vgic_supports_direct_msis(vcpu->kvm))
 		return;
 
 	DEBUG_SPINLOCK_BUG_ON(!irqs_disabled());
@@ -965,7 +916,7 @@ void kvm_vgic_flush_hwstate(struct kvm_vcpu *vcpu)
 	if (can_access_vgic_from_kernel())
 		vgic_restore_state(vcpu);
 
-	if (vgic_supports_direct_irqs(vcpu->kvm))
+	if (vgic_supports_direct_msis(vcpu->kvm))
 		vgic_v4_commit(vcpu);
 }
 
@@ -1057,7 +1008,7 @@ bool kvm_vgic_map_is_active(struct kvm_vcpu *vcpu, unsigned int vintid)
 	if (!vgic_initialized(vcpu->kvm))
 		return false;
 
-	irq = vgic_get_vcpu_irq(vcpu, vintid);
+	irq = vgic_get_irq(vcpu->kvm, vcpu, vintid);
 	raw_spin_lock_irqsave(&irq->irq_lock, flags);
 	map_is_active = irq->hw && irq->active;
 	raw_spin_unlock_irqrestore(&irq->irq_lock, flags);

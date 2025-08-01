@@ -91,6 +91,12 @@ Memory pools
 .. kernel-doc:: mm/mempool.c
    :export:
 
+DMA pools
+=========
+
+.. kernel-doc:: mm/dmapool.c
+   :export:
+
 More Memory Management Functions
 ================================
 

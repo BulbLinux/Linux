@@ -38,8 +38,12 @@
 # include "test-glibc.c"
 #undef main
 
-#define main main_test_libdw
-# include "test-libdw.c"
+#define main main_test_dwarf
+# include "test-dwarf.c"
+#undef main
+
+#define main main_test_dwarf_getlocations
+# include "test-dwarf_getlocations.c"
 #undef main
 
 #define main main_test_eventfd
@@ -58,8 +62,8 @@
 # include "test-libelf-getshdrstrndx.c"
 #undef main
 
-#define main main_test_libelf_zstd
-# include "test-libelf-zstd.c"
+#define main main_test_libunwind
+# include "test-libunwind.c"
 #undef main
 
 #define main main_test_libslang
@@ -92,6 +96,10 @@
 
 #define main main_test_stackprotector_all
 # include "test-stackprotector-all.c"
+#undef main
+
+#define main main_test_libdw_dwarf_unwind
+# include "test-libdw-dwarf-unwind.c"
 #undef main
 
 #define main main_test_zlib
@@ -170,14 +178,6 @@
 # include "test-libzstd.c"
 #undef main
 
-#define main main_test_libtraceevent
-# include "test-libtraceevent.c"
-#undef main
-
-#define main main_test_libtracefs
-# include "test-libtracefs.c"
-#undef main
-
 int main(int argc, char *argv[])
 {
 	main_test_libpython();
@@ -187,11 +187,13 @@ int main(int argc, char *argv[])
 	main_test_get_current_dir_name();
 	main_test_gettid();
 	main_test_glibc();
-	main_test_libdw();
+	main_test_dwarf();
+	main_test_dwarf_getlocations();
 	main_test_eventfd();
 	main_test_libelf_getphdrnum();
 	main_test_libelf_gelf_getnote();
 	main_test_libelf_getshdrstrndx();
+	main_test_libunwind();
 	main_test_libslang();
 	main_test_libbfd();
 	main_test_libbfd_buildid();
@@ -200,6 +202,7 @@ int main(int argc, char *argv[])
 	main_test_numa_num_possible_cpus();
 	main_test_timerfd();
 	main_test_stackprotector_all();
+	main_test_libdw_dwarf_unwind();
 	main_test_zlib();
 	main_test_pthread_attr_setaffinity_np();
 	main_test_pthread_barrier();
@@ -215,8 +218,6 @@ int main(int argc, char *argv[])
 	main_test_reallocarray();
 	main_test_disassembler_four_args();
 	main_test_libzstd();
-	main_test_libtraceevent();
-	main_test_libtracefs();
 
 	return 0;
 }

@@ -212,29 +212,10 @@ const volatile void * __must_check_fn(const volatile void *val)
 { return val; }
 
 #define no_free_ptr(p) \
-	((typeof(p)) __must_check_fn((__force const volatile void *)__get_and_null(p, NULL)))
+	((typeof(p)) __must_check_fn(__get_and_null(p, NULL)))
 
 #define return_ptr(p)	return no_free_ptr(p)
 
-/*
- * Only for situations where an allocation is handed in to another function
- * and consumed by that function on success.
- *
- *	struct foo *f __free(kfree) = kzalloc(sizeof(*f), GFP_KERNEL);
- *
- *	setup(f);
- *	if (some_condition)
- *		return -EINVAL;
- *	....
- *	ret = bar(f);
- *	if (!ret)
- *		retain_and_null_ptr(f);
- *	return ret;
- *
- * After retain_and_null_ptr(f) the variable f is NULL and cannot be
- * dereferenced anymore.
- */
-#define retain_and_null_ptr(p)		((void)__get_and_null(p, NULL))
 
 /*
  * DEFINE_CLASS(name, type, exit, init, init_args...):
@@ -253,7 +234,7 @@ const volatile void * __must_check_fn(const volatile void *val)
  * DEFINE_CLASS(fdget, struct fd, fdput(_T), fdget(fd), int fd)
  *
  *	CLASS(fdget, f)(fd);
- *	if (fd_empty(f))
+ *	if (!fd_file(f))
  *		return -EBADF;
  *
  *	// use 'f' without concern
@@ -277,14 +258,6 @@ static inline class_##_name##_t class_##_name##ext##_constructor(_init_args) \
 	class_##_name##_t var __cleanup(class_##_name##_destructor) =	\
 		class_##_name##_constructor
 
-#define scoped_class(_name, var, args)                          \
-	for (CLASS(_name, var)(args);                           \
-	     __guard_ptr(_name)(&var) || !__is_cond_ptr(_name); \
-	     ({ goto _label; }))                                \
-		if (0) {                                        \
-_label:                                                         \
-			break;                                  \
-		} else
 
 /*
  * DEFINE_GUARD(name, type, lock, unlock):
@@ -318,21 +291,11 @@ _label:                                                         \
 #define __DEFINE_CLASS_IS_CONDITIONAL(_name, _is_cond)	\
 static __maybe_unused const bool class_##_name##_is_conditional = _is_cond
 
-#define __DEFINE_GUARD_LOCK_PTR(_name, _exp) \
-	static inline void * class_##_name##_lock_ptr(class_##_name##_t *_T) \
-	{ return (void *)(__force unsigned long)*(_exp); }
-
-#define DEFINE_CLASS_IS_GUARD(_name) \
-	__DEFINE_CLASS_IS_CONDITIONAL(_name, false); \
-	__DEFINE_GUARD_LOCK_PTR(_name, _T)
-
-#define DEFINE_CLASS_IS_COND_GUARD(_name) \
-	__DEFINE_CLASS_IS_CONDITIONAL(_name, true); \
-	__DEFINE_GUARD_LOCK_PTR(_name, _T)
-
 #define DEFINE_GUARD(_name, _type, _lock, _unlock) \
+	__DEFINE_CLASS_IS_CONDITIONAL(_name, false); \
 	DEFINE_CLASS(_name, _type, if (_T) { _unlock; }, ({ _lock; _T; }), _type _T); \
-	DEFINE_CLASS_IS_GUARD(_name)
+	static inline void * class_##_name##_lock_ptr(class_##_name##_t *_T) \
+	{ return (void *)(__force unsigned long)*_T; }
 
 #define DEFINE_GUARD_COND(_name, _ext, _condlock) \
 	__DEFINE_CLASS_IS_CONDITIONAL(_name##_ext, true); \
@@ -380,7 +343,6 @@ _label:									\
 
 #define scoped_cond_guard(_name, _fail, args...)	\
 	__scoped_cond_guard(_name, _fail, __UNIQUE_ID(label), args)
-
 /*
  * Additional helper macros for generating lock guards with types, either for
  * locks that don't have a native type (eg. RCU, preempt) or those that need a
@@ -412,7 +374,11 @@ static inline void class_##_name##_destructor(class_##_name##_t *_T)	\
 	if (_T->lock) { _unlock; }					\
 }									\
 									\
-__DEFINE_GUARD_LOCK_PTR(_name, &_T->lock)
+static inline void *class_##_name##_lock_ptr(class_##_name##_t *_T)	\
+{									\
+	return (void *)(__force unsigned long)_T->lock;			\
+}
+
 
 #define __DEFINE_LOCK_GUARD_1(_name, _type, _lock)			\
 static inline class_##_name##_t class_##_name##_constructor(_type *l)	\

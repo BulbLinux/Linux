@@ -6,6 +6,7 @@
  * Author(s): Martin Schwidefsky <schwidefsky@de.ibm.com>
  */
 
+#include <linux/export.h>
 #include <linux/raid/pq.h>
 
 static inline void xor_block(u8 *p1, u8 *p2)

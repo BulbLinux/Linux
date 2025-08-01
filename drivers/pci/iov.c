@@ -285,16 +285,23 @@ const struct attribute_group sriov_vf_dev_attr_group = {
 	.is_visible = sriov_vf_attrs_are_visible,
 };
 
-static struct pci_dev *pci_iov_scan_device(struct pci_dev *dev, int id,
-					   struct pci_bus *bus)
+int pci_iov_add_virtfn(struct pci_dev *dev, int id)
 {
-	struct pci_sriov *iov = dev->sriov;
+	int i;
+	int rc = -ENOMEM;
+	u64 size;
 	struct pci_dev *virtfn;
-	int rc;
+	struct resource *res;
+	struct pci_sriov *iov = dev->sriov;
+	struct pci_bus *bus;
+
+	bus = virtfn_add_bus(dev->bus, pci_iov_virtfn_bus(dev, id));
+	if (!bus)
+		goto failed;
 
 	virtfn = pci_alloc_dev(bus);
 	if (!virtfn)
-		return ERR_PTR(-ENOMEM);
+		goto failed0;
 
 	virtfn->devfn = pci_iov_virtfn_devfn(dev, id);
 	virtfn->vendor = dev->vendor;
@@ -307,35 +314,8 @@ static struct pci_dev *pci_iov_scan_device(struct pci_dev *dev, int id,
 		pci_read_vf_config_common(virtfn);
 
 	rc = pci_setup_device(virtfn);
-	if (rc) {
-		pci_dev_put(dev);
-		pci_bus_put(virtfn->bus);
-		kfree(virtfn);
-		return ERR_PTR(rc);
-	}
-
-	return virtfn;
-}
-
-int pci_iov_add_virtfn(struct pci_dev *dev, int id)
-{
-	struct pci_bus *bus;
-	struct pci_dev *virtfn;
-	struct resource *res;
-	int rc, i;
-	u64 size;
-
-	bus = virtfn_add_bus(dev->bus, pci_iov_virtfn_bus(dev, id));
-	if (!bus) {
-		rc = -ENOMEM;
-		goto failed;
-	}
-
-	virtfn = pci_iov_scan_device(dev, id, bus);
-	if (IS_ERR(virtfn)) {
-		rc = PTR_ERR(virtfn);
-		goto failed0;
-	}
+	if (rc)
+		goto failed1;
 
 	virtfn->dev.parent = dev->dev.parent;
 	virtfn->multifunction = 0;
@@ -347,8 +327,8 @@ int pci_iov_add_virtfn(struct pci_dev *dev, int id)
 		virtfn->resource[i].name = pci_name(virtfn);
 		virtfn->resource[i].flags = res->flags;
 		size = pci_iov_resource_size(dev, i + PCI_IOV_RESOURCES);
-		resource_set_range(&virtfn->resource[i],
-				   res->start + size * id, size);
+		virtfn->resource[i].start = res->start + size * id;
+		virtfn->resource[i].end = virtfn->resource[i].start + size - 1;
 		rc = request_resource(res, &virtfn->resource[i]);
 		BUG_ON(rc);
 	}
@@ -767,7 +747,6 @@ static int sriov_init(struct pci_dev *dev, int pos)
 	struct resource *res;
 	const char *res_name;
 	struct pci_dev *pdev;
-	u32 sriovbars[PCI_SRIOV_NUM_BARS];
 
 	pci_read_config_word(dev, pos + PCI_SRIOV_CTRL, &ctrl);
 	if (ctrl & PCI_SRIOV_CTRL_VFE) {
@@ -804,10 +783,6 @@ found:
 	if (!iov)
 		return -ENOMEM;
 
-	/* Sizing SR-IOV BARs with VF Enable cleared - no decode */
-	__pci_size_stdbars(dev, PCI_SRIOV_NUM_BARS,
-			   pos + PCI_SRIOV_BAR, sriovbars);
-
 	nres = 0;
 	for (i = 0; i < PCI_SRIOV_NUM_BARS; i++) {
 		res = &dev->resource[i + PCI_IOV_RESOURCES];
@@ -821,8 +796,7 @@ found:
 			bar64 = (res->flags & IORESOURCE_MEM_64) ? 1 : 0;
 		else
 			bar64 = __pci_read_base(dev, pci_bar_unknown, res,
-						pos + PCI_SRIOV_BAR + i * 4,
-						&sriovbars[i]);
+						pos + PCI_SRIOV_BAR + i * 4);
 		if (!res->flags)
 			continue;
 		if (resource_size(res) & (PAGE_SIZE - 1)) {
@@ -830,7 +804,7 @@ found:
 			goto failed;
 		}
 		iov->barsz[i] = resource_size(res);
-		resource_set_size(res, resource_size(res) * total);
+		res->end = res->start + resource_size(res) * total - 1;
 		pci_info(dev, "%s %pR: contains BAR %d for %d VFs\n",
 			 res_name, res, i, total);
 		i += bar64;
@@ -972,7 +946,7 @@ void pci_iov_remove(struct pci_dev *dev)
 void pci_iov_update_resource(struct pci_dev *dev, int resno)
 {
 	struct pci_sriov *iov = dev->is_physfn ? dev->sriov : NULL;
-	struct resource *res = pci_resource_n(dev, resno);
+	struct resource *res = dev->resource + resno;
 	int vf_bar = resno - PCI_IOV_RESOURCES;
 	struct pci_bus_region region;
 	u16 cmd;

@@ -16,9 +16,6 @@ description:
 properties:
   compatible:
     enum:
-      - qcom,sc8180x-adsp-pas
-      - qcom,sc8180x-cdsp-pas
-      - qcom,sc8180x-slpi-pas
       - qcom,sm8150-adsp-pas
       - qcom,sm8150-cdsp-pas
       - qcom,sm8150-mpss-pas
@@ -63,9 +60,6 @@ allOf:
       properties:
         compatible:
           enum:
-            - qcom,sc8180x-adsp-pas
-            - qcom,sc8180x-cdsp-pas
-            - qcom,sc8180x-slpi-pas
             - qcom,sm8150-adsp-pas
             - qcom,sm8150-cdsp-pas
             - qcom,sm8150-slpi-pas
@@ -89,8 +83,6 @@ allOf:
       properties:
         compatible:
           enum:
-            - qcom,sc8180x-adsp-pas
-            - qcom,sc8180x-cdsp-pas
             - qcom,sm8150-adsp-pas
             - qcom,sm8150-cdsp-pas
             - qcom,sm8250-cdsp-pas
@@ -107,7 +99,6 @@ allOf:
       properties:
         compatible:
           enum:
-            - qcom,sc8180x-mpss-pas
             - qcom,sm8150-mpss-pas
     then:
       properties:
@@ -124,7 +115,6 @@ allOf:
       properties:
         compatible:
           enum:
-            - qcom,sc8180x-slpi-pas
             - qcom,sm8150-slpi-pas
             - qcom,sm8250-adsp-pas
             - qcom,sm8250-slpi-pas

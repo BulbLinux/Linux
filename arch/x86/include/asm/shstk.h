@@ -2,7 +2,7 @@
 #ifndef _ASM_X86_SHSTK_H
 #define _ASM_X86_SHSTK_H
 
-#ifndef __ASSEMBLER__
+#ifndef __ASSEMBLY__
 #include <linux/types.h>
 
 struct task_struct;
@@ -37,6 +37,6 @@ static inline int shstk_update_last_frame(unsigned long val) { return 0; }
 static inline bool shstk_is_enabled(void) { return false; }
 #endif /* CONFIG_X86_USER_SHADOW_STACK */
 
-#endif /* __ASSEMBLER__ */
+#endif /* __ASSEMBLY__ */
 
 #endif /* _ASM_X86_SHSTK_H */

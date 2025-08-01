@@ -1526,7 +1526,7 @@ ptp_ocp_utc_distribute(struct ptp_ocp *bp, u32 val)
 static void
 ptp_ocp_watchdog(struct timer_list *t)
 {
-	struct ptp_ocp *bp = timer_container_of(bp, t, watchdog);
+	struct ptp_ocp *bp = from_timer(bp, t, watchdog);
 	unsigned long flags;
 	u32 status, utc_offset;
 
@@ -2095,10 +2095,6 @@ ptp_ocp_signal_from_perout(struct ptp_ocp *bp, int gen,
 {
 	struct ptp_ocp_signal s = { };
 
-	if (req->flags & ~(PTP_PEROUT_DUTY_CYCLE |
-			   PTP_PEROUT_PHASE))
-		return -EOPNOTSUPP;
-
 	s.polarity = bp->signal[gen].polarity;
 	s.period = ktime_set(req->period.sec, req->period.nsec);
 	if (!s.period)
@@ -2376,7 +2372,7 @@ ptp_ocp_attr_group_add(struct ptp_ocp *bp,
 		if (attr_tbl[i].cap & bp->fw_cap)
 			count++;
 
-	bp->attr_group = kcalloc(count + 1, sizeof(*bp->attr_group),
+	bp->attr_group = kcalloc(count + 1, sizeof(struct attribute_group *),
 				 GFP_KERNEL);
 	if (!bp->attr_group)
 		return -ENOMEM;
@@ -3755,7 +3751,7 @@ DEVICE_FREQ_GROUP(freq4, 3);
 
 static ssize_t
 disciplining_config_read(struct file *filp, struct kobject *kobj,
-			 const struct bin_attribute *bin_attr, char *buf,
+			 struct bin_attribute *bin_attr, char *buf,
 			 loff_t off, size_t count)
 {
 	struct ptp_ocp *bp = dev_get_drvdata(kobj_to_dev(kobj));
@@ -3790,7 +3786,7 @@ out:
 
 static ssize_t
 disciplining_config_write(struct file *filp, struct kobject *kobj,
-			  const struct bin_attribute *bin_attr, char *buf,
+			  struct bin_attribute *bin_attr, char *buf,
 			  loff_t off, size_t count)
 {
 	struct ptp_ocp *bp = dev_get_drvdata(kobj_to_dev(kobj));
@@ -3813,11 +3809,11 @@ disciplining_config_write(struct file *filp, struct kobject *kobj,
 
 	return err;
 }
-static const BIN_ATTR_RW(disciplining_config, OCP_ART_CONFIG_SIZE);
+static BIN_ATTR_RW(disciplining_config, OCP_ART_CONFIG_SIZE);
 
 static ssize_t
 temperature_table_read(struct file *filp, struct kobject *kobj,
-		       const struct bin_attribute *bin_attr, char *buf,
+		       struct bin_attribute *bin_attr, char *buf,
 		       loff_t off, size_t count)
 {
 	struct ptp_ocp *bp = dev_get_drvdata(kobj_to_dev(kobj));
@@ -3852,7 +3848,7 @@ out:
 
 static ssize_t
 temperature_table_write(struct file *filp, struct kobject *kobj,
-			const struct bin_attribute *bin_attr, char *buf,
+			struct bin_attribute *bin_attr, char *buf,
 			loff_t off, size_t count)
 {
 	struct ptp_ocp *bp = dev_get_drvdata(kobj_to_dev(kobj));
@@ -3875,7 +3871,7 @@ temperature_table_write(struct file *filp, struct kobject *kobj,
 
 	return err;
 }
-static const BIN_ATTR_RW(temperature_table, OCP_ART_TEMP_TABLE_SIZE);
+static BIN_ATTR_RW(temperature_table, OCP_ART_TEMP_TABLE_SIZE);
 
 static struct attribute *fb_timecard_attrs[] = {
 	&dev_attr_serialnum.attr,
@@ -3930,7 +3926,7 @@ static struct attribute *art_timecard_attrs[] = {
 	NULL,
 };
 
-static const struct bin_attribute *const bin_art_timecard_attrs[] = {
+static struct bin_attribute *bin_art_timecard_attrs[] = {
 	&bin_attr_disciplining_config,
 	&bin_attr_temperature_table,
 	NULL,
@@ -4021,6 +4017,9 @@ _signal_summary_show(struct seq_file *s, struct ptp_ocp *bp, int nr)
 	char label[16];
 	bool on;
 	u32 val;
+
+	if (!signal)
+		return;
 
 	on = signal->running;
 	sprintf(label, "GEN%d", nr + 1);
@@ -4558,7 +4557,7 @@ ptp_ocp_detach(struct ptp_ocp *bp)
 	ptp_ocp_detach_sysfs(bp);
 	ptp_ocp_attr_group_del(bp);
 	if (timer_pending(&bp->watchdog))
-		timer_delete_sync(&bp->watchdog);
+		del_timer_sync(&bp->watchdog);
 	if (bp->ts0)
 		ptp_ocp_unregister_ext(bp->ts0);
 	if (bp->ts1)

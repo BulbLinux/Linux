@@ -1514,7 +1514,7 @@ static struct platform_driver nbpf_driver = {
 	},
 	.id_table = nbpf_ids,
 	.probe = nbpf_probe,
-	.remove = nbpf_remove,
+	.remove_new = nbpf_remove,
 };
 
 module_platform_driver(nbpf_driver);

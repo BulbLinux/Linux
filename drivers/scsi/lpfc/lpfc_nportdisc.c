@@ -64,6 +64,9 @@ static int
 lpfc_check_adisc(struct lpfc_vport *vport, struct lpfc_nodelist *ndlp,
 		 struct lpfc_name *nn, struct lpfc_name *pn)
 {
+	/* First, we MUST have a RPI registered */
+	if (!test_bit(NLP_RPI_REGISTERED, &ndlp->nlp_flag))
+		return 0;
 
 	/* Compare the ADISC rsp WWNN / WWPN matches our internal node
 	 * table entry for that node.
@@ -732,7 +735,6 @@ lpfc_rcv_padisc(struct lpfc_vport *vport, struct lpfc_nodelist *ndlp,
 	ADISC *ap;
 	uint32_t *lp;
 	uint32_t cmd;
-	int rc;
 
 	pcmd = cmdiocb->cmd_dmabuf;
 	lp = (uint32_t *) pcmd->virt;
@@ -757,29 +759,21 @@ lpfc_rcv_padisc(struct lpfc_vport *vport, struct lpfc_nodelist *ndlp,
 		 * resume the RPI before the ACC goes out.
 		 */
 		if (vport->phba->sli_rev == LPFC_SLI_REV4) {
-			/* Don't resume an unregistered RPI - unnecessary
-			 * mailbox. Just send the ACC when the RPI is not
-			 * registered.
-			 */
-			if (test_bit(NLP_RPI_REGISTERED, &ndlp->nlp_flag)) {
-				elsiocb = kmalloc(sizeof(*elsiocb), GFP_KERNEL);
-				if (elsiocb) {
-					/* Save info from cmd IOCB used in
-					 * rsp
-					 */
-					memcpy(elsiocb, cmdiocb,
-					       sizeof(*elsiocb));
+			elsiocb = kmalloc(sizeof(struct lpfc_iocbq),
+				GFP_KERNEL);
+			if (elsiocb) {
+				/* Save info from cmd IOCB used in rsp */
+				memcpy((uint8_t *)elsiocb, (uint8_t *)cmdiocb,
+					sizeof(struct lpfc_iocbq));
 
-					elsiocb->drvrTimeout = cmd;
+				/* Save the ELS cmd */
+				elsiocb->drvrTimeout = cmd;
 
-					rc = lpfc_sli4_resume_rpi(ndlp,
-								  lpfc_mbx_cmpl_resume_rpi,
-								  elsiocb);
-					if (rc)
-						kfree(elsiocb);
-
-					goto out;
-				}
+				if (lpfc_sli4_resume_rpi(ndlp,
+						lpfc_mbx_cmpl_resume_rpi,
+						elsiocb))
+					kfree(elsiocb);
+				goto out;
 			}
 		}
 
@@ -821,6 +815,7 @@ out:
 	set_bit(NLP_DELAY_TMO, &ndlp->nlp_flag);
 	ndlp->nlp_last_elscmd = ELS_CMD_PLOGI;
 	ndlp->nlp_prev_state = ndlp->nlp_state;
+	lpfc_nlp_set_state(vport, ndlp, NLP_STE_NPR_NODE);
 	return 0;
 }
 
@@ -911,7 +906,7 @@ lpfc_rcv_logo(struct lpfc_vport *vport, struct lpfc_nodelist *ndlp,
 		    (ndlp->nlp_state >= NLP_STE_ADISC_ISSUE ||
 		     ndlp->nlp_state <= NLP_STE_PRLI_ISSUE)) {
 			mod_timer(&ndlp->nlp_delayfunc,
-				  jiffies + secs_to_jiffies(1));
+				  jiffies + msecs_to_jiffies(1000 * 1));
 			set_bit(NLP_DELAY_TMO, &ndlp->nlp_flag);
 			ndlp->nlp_last_elscmd = ELS_CMD_PLOGI;
 			lpfc_printf_vlog(vport, KERN_INFO,
@@ -1337,7 +1332,7 @@ lpfc_rcv_els_plogi_issue(struct lpfc_vport *vport, struct lpfc_nodelist *ndlp,
 	}
 
 	/* Put ndlp in npr state set plogi timer for 1 sec */
-	mod_timer(&ndlp->nlp_delayfunc, jiffies + secs_to_jiffies(1));
+	mod_timer(&ndlp->nlp_delayfunc, jiffies + msecs_to_jiffies(1000 * 1));
 	set_bit(NLP_DELAY_TMO, &ndlp->nlp_flag);
 	ndlp->nlp_last_elscmd = ELS_CMD_PLOGI;
 	ndlp->nlp_prev_state = NLP_STE_PLOGI_ISSUE;
@@ -1941,7 +1936,7 @@ lpfc_cmpl_reglogin_reglogin_issue(struct lpfc_vport *vport,
 
 		/* Put ndlp in npr state set plogi timer for 1 sec */
 		mod_timer(&ndlp->nlp_delayfunc,
-			  jiffies + secs_to_jiffies(1));
+			  jiffies + msecs_to_jiffies(1000 * 1));
 		set_bit(NLP_DELAY_TMO, &ndlp->nlp_flag);
 		ndlp->nlp_last_elscmd = ELS_CMD_PLOGI;
 
@@ -2260,13 +2255,11 @@ lpfc_cmpl_prli_prli_issue(struct lpfc_vport *vport, struct lpfc_nodelist *ndlp,
 	    (vport->port_type == LPFC_NPIV_PORT) &&
 	     vport->cfg_restrict_login) {
 out:
-		lpfc_printf_vlog(vport, KERN_INFO,
-				 LOG_ELS | LOG_DISCOVERY | LOG_NODE,
-				 "6228 Sending LOGO, determined nlp_type "
-				 "0x%x nlp_flag x%lx refcnt %u\n",
-				 ndlp->nlp_type, ndlp->nlp_flag,
-				 kref_read(&ndlp->kref));
+		set_bit(NLP_TARGET_REMOVE, &ndlp->nlp_flag);
 		lpfc_issue_els_logo(vport, ndlp, 0);
+
+		ndlp->nlp_prev_state = NLP_STE_PRLI_ISSUE;
+		lpfc_nlp_set_state(vport, ndlp, NLP_STE_NPR_NODE);
 		return ndlp->nlp_state;
 	}
 
@@ -2750,7 +2743,7 @@ lpfc_rcv_prlo_npr_node(struct lpfc_vport *vport, struct lpfc_nodelist *ndlp,
 
 	if (!test_bit(NLP_DELAY_TMO, &ndlp->nlp_flag)) {
 		mod_timer(&ndlp->nlp_delayfunc,
-			  jiffies + secs_to_jiffies(1));
+			  jiffies + msecs_to_jiffies(1000 * 1));
 		set_bit(NLP_DELAY_TMO, &ndlp->nlp_flag);
 		clear_bit(NLP_NPR_ADISC, &ndlp->nlp_flag);
 		ndlp->nlp_last_elscmd = ELS_CMD_PLOGI;

@@ -5,12 +5,12 @@
 //! C header: [`include/linux/uaccess.h`](srctree/include/linux/uaccess.h)
 
 use crate::{
-    alloc::{Allocator, Flags},
+    alloc::Flags,
     bindings,
     error::Result,
     ffi::c_void,
     prelude::*,
-    transmute::{AsBytes, FromBytes},
+    types::{AsBytes, FromBytes},
 };
 use core::mem::{size_of, MaybeUninit};
 
@@ -46,9 +46,10 @@ pub type UserPtr = usize;
 ///
 /// ```no_run
 /// use kernel::ffi::c_void;
+/// use kernel::error::Result;
 /// use kernel::uaccess::{UserPtr, UserSlice};
 ///
-/// fn bytes_add_one(uptr: UserPtr, len: usize) -> Result {
+/// fn bytes_add_one(uptr: UserPtr, len: usize) -> Result<()> {
 ///     let (read, mut write) = UserSlice::new(uptr, len).reader_writer();
 ///
 ///     let mut buf = KVec::new();
@@ -67,6 +68,7 @@ pub type UserPtr = usize;
 ///
 /// ```no_run
 /// use kernel::ffi::c_void;
+/// use kernel::error::{code::EINVAL, Result};
 /// use kernel::uaccess::{UserPtr, UserSlice};
 ///
 /// /// Returns whether the data in this region is valid.
@@ -125,7 +127,7 @@ impl UserSlice {
     /// Reads the entirety of the user slice, appending it to the end of the provided buffer.
     ///
     /// Fails with [`EFAULT`] if the read happens on a bad address.
-    pub fn read_all<A: Allocator>(self, buf: &mut Vec<u8, A>, flags: Flags) -> Result {
+    pub fn read_all(self, buf: &mut KVec<u8>, flags: Flags) -> Result {
         self.reader().read_all(buf, flags)
     }
 
@@ -279,16 +281,17 @@ impl UserSliceReader {
     /// Reads the entirety of the user slice, appending it to the end of the provided buffer.
     ///
     /// Fails with [`EFAULT`] if the read happens on a bad address.
-    pub fn read_all<A: Allocator>(mut self, buf: &mut Vec<u8, A>, flags: Flags) -> Result {
+    pub fn read_all(mut self, buf: &mut KVec<u8>, flags: Flags) -> Result {
         let len = self.length;
         buf.reserve(len, flags)?;
 
-        // The call to `reserve` was successful, so the spare capacity is at least `len` bytes long.
+        // The call to `try_reserve` was successful, so the spare capacity is at least `len` bytes
+        // long.
         self.read_raw(&mut buf.spare_capacity_mut()[..len])?;
 
         // SAFETY: Since the call to `read_raw` was successful, so the next `len` bytes of the
         // vector have been initialized.
-        unsafe { buf.inc_len(len) };
+        unsafe { buf.set_len(buf.len() + len) };
         Ok(())
     }
 }

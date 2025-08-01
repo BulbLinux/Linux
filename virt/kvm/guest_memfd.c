@@ -261,19 +261,15 @@ static int kvm_gmem_release(struct inode *inode, struct file *file)
 	 * dereferencing the slot for existing bindings needs to be protected
 	 * against memslot updates, specifically so that unbind doesn't race
 	 * and free the memslot (kvm_gmem_get_file() will return NULL).
-	 *
-	 * Since .release is called only when the reference count is zero,
-	 * after which file_ref_get() and get_file_active() fail,
-	 * kvm_gmem_get_pfn() cannot be using the file concurrently.
-	 * file_ref_put() provides a full barrier, and get_file_active() the
-	 * matching acquire barrier.
 	 */
 	mutex_lock(&kvm->slots_lock);
 
 	filemap_invalidate_lock(inode->i_mapping);
 
 	xa_for_each(&gmem->bindings, index, slot)
-		WRITE_ONCE(slot->gmem.file, NULL);
+		rcu_assign_pointer(slot->gmem.file, NULL);
+
+	synchronize_rcu();
 
 	/*
 	 * All in-flight operations are gone and new bindings can be created.
@@ -302,14 +298,10 @@ static inline struct file *kvm_gmem_get_file(struct kvm_memory_slot *slot)
 	/*
 	 * Do not return slot->gmem.file if it has already been closed;
 	 * there might be some time between the last fput() and when
-	 * kvm_gmem_release() clears slot->gmem.file.
+	 * kvm_gmem_release() clears slot->gmem.file, and you do not
+	 * want to spin in the meanwhile.
 	 */
 	return get_file_active(&slot->gmem.file);
-}
-
-static pgoff_t kvm_gmem_get_index(struct kvm_memory_slot *slot, gfn_t gfn)
-{
-	return gfn - slot->base_gfn + slot->gmem.pgoff;
 }
 
 static struct file_operations kvm_gmem_fops = {
@@ -382,12 +374,23 @@ static const struct address_space_operations kvm_gmem_aops = {
 #endif
 };
 
+static int kvm_gmem_getattr(struct mnt_idmap *idmap, const struct path *path,
+			    struct kstat *stat, u32 request_mask,
+			    unsigned int query_flags)
+{
+	struct inode *inode = path->dentry->d_inode;
+
+	generic_fillattr(idmap, request_mask, inode, stat);
+	return 0;
+}
+
 static int kvm_gmem_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 			    struct iattr *attr)
 {
 	return -EINVAL;
 }
 static const struct inode_operations kvm_gmem_iops = {
+	.getattr	= kvm_gmem_getattr,
 	.setattr	= kvm_gmem_setattr,
 };
 
@@ -502,11 +505,11 @@ int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
 	}
 
 	/*
-	 * memslots of flag KVM_MEM_GUEST_MEMFD are immutable to change, so
-	 * kvm_gmem_bind() must occur on a new memslot.  Because the memslot
-	 * is not visible yet, kvm_gmem_get_pfn() is guaranteed to see the file.
+	 * No synchronize_rcu() needed, any in-flight readers are guaranteed to
+	 * be see either a NULL file or this new file, no need for them to go
+	 * away.
 	 */
-	WRITE_ONCE(slot->gmem.file, file);
+	rcu_assign_pointer(slot->gmem.file, file);
 	slot->gmem.pgoff = start;
 
 	xa_store_range(&gmem->bindings, start, end - 1, slot, GFP_KERNEL);
@@ -542,29 +545,25 @@ void kvm_gmem_unbind(struct kvm_memory_slot *slot)
 
 	filemap_invalidate_lock(file->f_mapping);
 	xa_store_range(&gmem->bindings, start, end - 1, NULL, GFP_KERNEL);
-
-	/*
-	 * synchronize_srcu(&kvm->srcu) ensured that kvm_gmem_get_pfn()
-	 * cannot see this memslot.
-	 */
-	WRITE_ONCE(slot->gmem.file, NULL);
+	rcu_assign_pointer(slot->gmem.file, NULL);
+	synchronize_rcu();
 	filemap_invalidate_unlock(file->f_mapping);
 
 	fput(file);
 }
 
 /* Returns a locked folio on success.  */
-static struct folio *__kvm_gmem_get_pfn(struct file *file,
-					struct kvm_memory_slot *slot,
-					pgoff_t index, kvm_pfn_t *pfn,
-					bool *is_prepared, int *max_order)
+static struct folio *
+__kvm_gmem_get_pfn(struct file *file, struct kvm_memory_slot *slot,
+		   gfn_t gfn, kvm_pfn_t *pfn, bool *is_prepared,
+		   int *max_order)
 {
-	struct file *gmem_file = READ_ONCE(slot->gmem.file);
+	pgoff_t index = gfn - slot->base_gfn + slot->gmem.pgoff;
 	struct kvm_gmem *gmem = file->private_data;
 	struct folio *folio;
 
-	if (file != gmem_file) {
-		WARN_ON_ONCE(gmem_file);
+	if (file != slot->gmem.file) {
+		WARN_ON_ONCE(slot->gmem.file);
 		return ERR_PTR(-EFAULT);
 	}
 
@@ -593,10 +592,8 @@ static struct folio *__kvm_gmem_get_pfn(struct file *file,
 }
 
 int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
-		     gfn_t gfn, kvm_pfn_t *pfn, struct page **page,
-		     int *max_order)
+		     gfn_t gfn, kvm_pfn_t *pfn, int *max_order)
 {
-	pgoff_t index = kvm_gmem_get_index(slot, gfn);
 	struct file *file = kvm_gmem_get_file(slot);
 	struct folio *folio;
 	bool is_prepared = false;
@@ -605,7 +602,7 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
 	if (!file)
 		return -EFAULT;
 
-	folio = __kvm_gmem_get_pfn(file, slot, index, pfn, &is_prepared, max_order);
+	folio = __kvm_gmem_get_pfn(file, slot, gfn, pfn, &is_prepared, max_order);
 	if (IS_ERR(folio)) {
 		r = PTR_ERR(folio);
 		goto out;
@@ -615,10 +612,7 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
 		r = kvm_gmem_prepare_folio(kvm, slot, gfn, folio);
 
 	folio_unlock(folio);
-
-	if (!r)
-		*page = folio_file_page(folio, index);
-	else
+	if (r < 0)
 		folio_put(folio);
 
 out:
@@ -656,7 +650,6 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long 
 	for (i = 0; i < npages; i += (1 << max_order)) {
 		struct folio *folio;
 		gfn_t gfn = start_gfn + i;
-		pgoff_t index = kvm_gmem_get_index(slot, gfn);
 		bool is_prepared = false;
 		kvm_pfn_t pfn;
 
@@ -665,7 +658,7 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long 
 			break;
 		}
 
-		folio = __kvm_gmem_get_pfn(file, slot, index, &pfn, &is_prepared, &max_order);
+		folio = __kvm_gmem_get_pfn(file, slot, gfn, &pfn, &is_prepared, &max_order);
 		if (IS_ERR(folio)) {
 			ret = PTR_ERR(folio);
 			break;

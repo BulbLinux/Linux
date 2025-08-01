@@ -30,7 +30,6 @@ static bool is_madv_discard(int behavior)
 	case MADV_REMOVE:
 	case MADV_DONTFORK:
 	case MADV_WIPEONFORK:
-	case MADV_GUARD_INSTALL:
 		return true;
 	}
 
@@ -217,9 +216,9 @@ int do_mseal(unsigned long start, size_t len_in, unsigned long flags)
 	unsigned long end;
 	struct mm_struct *mm = current->mm;
 
-	/* Verify flags not set. */
-	if (flags)
-		return -EINVAL;
+	ret = can_do_mseal(flags);
+	if (ret)
+		return ret;
 
 	start = untagged_addr(start);
 	if (!PAGE_ALIGNED(start))

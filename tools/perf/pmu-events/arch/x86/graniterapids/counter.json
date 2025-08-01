@@ -20,16 +20,6 @@
         "CountersNumGeneric": "4"
     },
     {
-        "Unit": "CXLCM",
-        "CountersNumFixed": "0",
-        "CountersNumGeneric": 8
-    },
-    {
-        "Unit": "CXLDP",
-        "CountersNumFixed": "0",
-        "CountersNumGeneric": 4
-    },
-    {
         "Unit": "B2HOT",
         "CountersNumFixed": "0",
         "CountersNumGeneric": 4
@@ -62,12 +52,12 @@
     {
         "Unit": "PCU",
         "CountersNumFixed": "0",
-        "CountersNumGeneric": "4"
+        "CountersNumGeneric": 4
     },
     {
         "Unit": "CHACMS",
         "CountersNumFixed": "0",
-        "CountersNumGeneric": "4"
+        "CountersNumGeneric": 4
     },
     {
         "Unit": "MDF",
@@ -75,8 +65,13 @@
         "CountersNumGeneric": "4"
     },
     {
-        "Unit": "UBOX",
+        "Unit": "CXLCM",
         "CountersNumFixed": "0",
-        "CountersNumGeneric": "2"
+        "CountersNumGeneric": 8
+    },
+    {
+        "Unit": "CXLDP",
+        "CountersNumFixed": "0",
+        "CountersNumGeneric": 4
     }
 ]

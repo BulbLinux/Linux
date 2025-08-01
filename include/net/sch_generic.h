@@ -803,14 +803,6 @@ static inline bool qdisc_tx_changing(const struct net_device *dev)
 	return false;
 }
 
-/* "noqueue" qdisc identified by not having any enqueue, see noqueue_init() */
-static inline bool qdisc_txq_has_no_queue(const struct netdev_queue *txq)
-{
-	struct Qdisc *qdisc = rcu_access_pointer(txq->qdisc);
-
-	return qdisc->enqueue == NULL;
-}
-
 /* Is the device using the noop qdisc on all queues?  */
 static inline bool qdisc_tx_is_noop(const struct net_device *dev)
 {
@@ -971,6 +963,14 @@ static inline void qdisc_qstats_qlen_backlog(struct Qdisc *sch,  __u32 *qlen,
 	gnet_stats_add_queue(&qstats, sch->cpu_qstats, &sch->qstats);
 	*qlen = qstats.qlen + qdisc_qlen(sch);
 	*backlog = qstats.backlog;
+}
+
+static inline void qdisc_tree_flush_backlog(struct Qdisc *sch)
+{
+	__u32 qlen, backlog;
+
+	qdisc_qstats_qlen_backlog(sch, &qlen, &backlog);
+	qdisc_tree_reduce_backlog(sch, qlen, backlog);
 }
 
 static inline void qdisc_purge_queue(struct Qdisc *sch)
@@ -1257,14 +1257,6 @@ static inline int qdisc_drop(struct sk_buff *skb, struct Qdisc *sch,
 	qdisc_qstats_drop(sch);
 
 	return NET_XMIT_DROP;
-}
-
-static inline int qdisc_drop_reason(struct sk_buff *skb, struct Qdisc *sch,
-				    struct sk_buff **to_free,
-				    enum skb_drop_reason reason)
-{
-	tcf_set_drop_reason(skb, reason);
-	return qdisc_drop(skb, sch, to_free);
 }
 
 static inline int qdisc_drop_all(struct sk_buff *skb, struct Qdisc *sch,
