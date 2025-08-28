@@ -16,6 +16,9 @@ obj-$(CONFIG_LOGO_SUPERH_CLUT224)	+= logo_superh_clut224.o
 
 obj-$(CONFIG_SPU_BASE)			+= logo_spe_clut224.o
 
+# For Bulb Linux
+obj-$(CONFIG_LOGO_BULBLINUX)		+= logo_BulbLinux_clut224.o
+
 # How to generate logo's
 
 hostprogs := pnmtologo

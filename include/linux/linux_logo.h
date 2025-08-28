@@ -30,6 +30,8 @@ struct linux_logo {
 	const unsigned char *data;
 };
 
+extern const struct linux_logo logo_BulbLinux_clut224; // default for Bulb Linux
+
 extern const struct linux_logo logo_linux_mono;
 extern const struct linux_logo logo_linux_vga16;
 extern const struct linux_logo logo_linux_clut224;
